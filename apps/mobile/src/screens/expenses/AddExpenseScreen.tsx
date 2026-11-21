@@ -466,8 +466,20 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             ) : null}
 
             {scanNotice ? (
-              <View style={styles.ocrNoticeBox}>
-                <Text style={styles.ocrNoticeText}>{scanNotice}</Text>
+              <View
+                style={[
+                  styles.ocrNoticeBox,
+                  scanNotice.startsWith('✨') && styles.ocrNoticeSuccessBox,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.ocrNoticeText,
+                    scanNotice.startsWith('✨') && styles.ocrNoticeSuccessText,
+                  ]}
+                >
+                  {scanNotice}
+                </Text>
               </View>
             ) : null}
 
@@ -925,10 +937,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
   },
+  ocrNoticeSuccessBox: {
+    backgroundColor: colors.lime,
+  },
   ocrNoticeText: {
     fontFamily: fonts.regular,
     fontSize: 12,
     color: colors.coral,
+  },
+  ocrNoticeSuccessText: {
+    fontFamily: fonts.medium,
+    color: colors.forest,
   },
   receiptPreviewRow: {
     flexDirection: 'row',
