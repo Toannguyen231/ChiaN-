@@ -19,6 +19,7 @@ export {
 } from './Icons';
 export { InfoCard } from './InfoCard';
 export { InviteLinkModal } from './InviteLinkModal';
+export { LuckyWheelModal, type LuckyWheelMember } from './LuckyWheelModal';
 export { OtpInput } from './OtpInput';
 export { ScreenContainer } from './ScreenContainer';
 export { StateView } from './StateView';

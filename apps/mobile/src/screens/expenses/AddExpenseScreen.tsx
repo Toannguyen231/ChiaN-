@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Modal,
@@ -12,6 +12,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import {
+  calculateItemizedSplit,
   formatVnd,
   parseVndInput,
   validateExactSplit,
@@ -26,6 +27,7 @@ import {
   ChiaNeButton,
   ChiaNeChip,
   ChiaNeInput,
+  LuckyWheelModal,
   ScreenContainer,
   StateView,
 } from '../../components';
@@ -101,8 +103,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [scanningReceipt, setScanningReceipt] = useState(false);
   const [scanNotice, setScanNotice] = useState<string | null>(null);
-  const [scannedItems, setScannedItems] = useState<ReceiptItemDto[]>([]);
   const [receiptImageUri, setReceiptImageUri] = useState<string>(draft.receiptImageUrl || '');
+  const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
+  const [itemizedOverflowed, setItemizedOverflowed] = useState(false);
+  const [luckyWheelOpen, setLuckyWheelOpen] = useState(false);
 
   const initialize = useCallback(async () => {
     setLoadError(null);
@@ -118,7 +122,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       } else if (draft.groupId !== groupId || draft.expenseId !== null) {
         draft.initNew(groupId, groupDetail.members, groupDetail.myMemberId);
         setReceiptImageUri('');
-        setScannedItems([]);
       }
     } catch (err) {
       setLoadError(
@@ -190,18 +193,21 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           mimeType,
         });
 
-        if (scan.totalVnd > 0) {
-          draft.patchDraft({ amountVnd: scan.totalVnd });
-        }
-        if (scan.detectedMerchant && !draft.title.trim()) {
-          draft.patchDraft({ title: scan.detectedMerchant });
-        }
-        if (scan.detectedCategory) {
-          draft.patchDraft({ category: scan.detectedCategory });
-        }
-        if (scan.items && scan.items.length > 0) {
-          setScannedItems(scan.items);
-        }
+        const normalizedItems: ReceiptItemDto[] = (scan.items ?? []).map((it) => ({
+          ...it,
+          assignedMemberIds: [],
+        }));
+
+        draft.patchDraft({
+          ...(scan.totalVnd > 0 ? { amountVnd: scan.totalVnd } : {}),
+          ...(scan.detectedMerchant && !draft.title.trim()
+            ? { title: scan.detectedMerchant }
+            : {}),
+          ...(scan.detectedCategory ? { category: scan.detectedCategory } : {}),
+          ...(normalizedItems.length > 0 ? { scannedItems: normalizedItems } : {}),
+        });
+        setItemizedOverflowed(false);
+
         if (scan.notice) {
           setScanNotice(scan.notice);
         }
@@ -224,21 +230,125 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [initialize]);
 
   const group = cachedGroup ?? useGroupsStore.getState().groupDetailsById[groupId];
-  const members = group?.members ?? [];
+  const members = useMemo(() => group?.members ?? [], [group?.members]);
+
+  const hasCustomItemAssignments = useMemo(() => {
+    const count = members.length;
+    if (count === 0) return false;
+    return draft.scannedItems.some((item) => {
+      const assignedCount = new Set(item.assignedMemberIds ?? []).size;
+      return assignedCount > 0 && assignedCount < count;
+    });
+  }, [draft.scannedItems, members.length]);
+
+  const applyItemizedDraft = useCallback(
+    (nextItems: ReceiptItemDto[], amountVnd: number) => {
+      const memberIds = members.map((m) => m.id);
+      if (memberIds.length === 0) {
+        draft.patchDraft({ scannedItems: nextItems });
+        return;
+      }
+
+      const customActive = nextItems.some((item) => {
+        const assignedCount = new Set(item.assignedMemberIds ?? []).size;
+        return assignedCount > 0 && assignedCount < memberIds.length;
+      });
+
+      if (!customActive) {
+        setItemizedOverflowed(false);
+        draft.patchDraft({
+          scannedItems: nextItems,
+          splitMethod: 'EQUAL',
+          participantIds: memberIds,
+        });
+        return;
+      }
+
+      if (amountVnd <= 0) {
+        setItemizedOverflowed(false);
+        draft.patchDraft({ scannedItems: nextItems });
+        return;
+      }
+
+      const result = calculateItemizedSplit(amountVnd, memberIds, nextItems);
+      const exactMap: Record<string, number> = {};
+      for (const s of result.shares) {
+        exactMap[s.memberId] = s.amountVnd;
+      }
+      setItemizedOverflowed(result.overflowed);
+      draft.patchDraft({
+        scannedItems: nextItems,
+        splitMethod: 'EXACT',
+        participantIds: memberIds,
+        exactAmountsByMember: exactMap,
+      });
+    },
+    [draft, members]
+  );
+
+  const toggleMemberForActiveItem = (memberId: string) => {
+    if (activeItemIndex === null) return;
+    const item = draft.scannedItems[activeItemIndex];
+    if (!item) return;
+
+    const currentSet = new Set(item.assignedMemberIds ?? []);
+    if (currentSet.has(memberId)) {
+      currentSet.delete(memberId);
+    } else {
+      currentSet.add(memberId);
+    }
+
+    // Assigning everyone equals shared pool ("Cả bàn")
+    const nextAssigned =
+      currentSet.size >= members.length ? [] : Array.from(currentSet);
+    const nextItems = draft.scannedItems.map((it, idx) =>
+      idx === activeItemIndex ? { ...it, assignedMemberIds: nextAssigned } : it
+    );
+    applyItemizedDraft(nextItems, draft.amountVnd);
+  };
+
+  const resetActiveItemToAll = () => {
+    if (activeItemIndex === null) return;
+    const nextItems = draft.scannedItems.map((it, idx) =>
+      idx === activeItemIndex ? { ...it, assignedMemberIds: [] } : it
+    );
+    applyItemizedDraft(nextItems, draft.amountVnd);
+  };
 
   const payerName =
     members.find((m) => m.id === draft.paidByMemberId)?.displayName ?? 'Chọn người trả';
 
   const splitMethodLabel =
-    draft.splitMethod === 'EQUAL'
-      ? 'Chia đều'
-      : draft.splitMethod === 'EXACT'
-        ? 'Số tiền'
-        : 'Phần trăm';
+    hasCustomItemAssignments
+      ? 'Theo từng món'
+      : draft.splitMethod === 'EQUAL'
+        ? 'Chia đều'
+        : draft.splitMethod === 'EXACT'
+          ? 'Số tiền'
+          : 'Phần trăm';
 
   const handleAmountChange = (raw: string) => {
     const nextAmount = parseVndInput(raw);
-    draft.patchDraft({ amountVnd: nextAmount });
+    if (hasCustomItemAssignments && nextAmount > 0 && members.length > 0) {
+      const result = calculateItemizedSplit(
+        nextAmount,
+        members.map((m) => m.id),
+        draft.scannedItems
+      );
+      const exactMap: Record<string, number> = {};
+      for (const s of result.shares) {
+        exactMap[s.memberId] = s.amountVnd;
+      }
+      setItemizedOverflowed(result.overflowed);
+      draft.patchDraft({
+        amountVnd: nextAmount,
+        splitMethod: 'EXACT',
+        participantIds: members.map((m) => m.id),
+        exactAmountsByMember: exactMap,
+      });
+    } else {
+      draft.patchDraft({ amountVnd: nextAmount });
+    }
     if (submitError) setSubmitError(null);
   };
 
@@ -329,6 +439,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       splitMethod: draft.splitMethod,
       paidByMemberId: draft.paidByMemberId,
       expenseDate: draft.expenseDateIso,
+      isPaidFromPot: draft.isPaidFromPot,
       ...(draft.note.trim() ? { note: draft.note.trim() } : {}),
       ...(draft.receiptImageUrl.trim()
         ? { receiptImageUrl: draft.receiptImageUrl.trim() }
@@ -495,8 +606,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   <Pressable
                     onPress={() => {
                       setReceiptImageUri('');
-                      draft.patchDraft({ receiptImageUrl: '' });
-                      setScannedItems([]);
+                      setItemizedOverflowed(false);
+                      draft.patchDraft({
+                        receiptImageUrl: '',
+                        scannedItems: [],
+                      });
                     }}
                   >
                     <Text style={styles.removeReceiptText}>Gỡ ảnh</Text>
@@ -505,24 +619,97 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               </View>
             ) : null}
 
-            {scannedItems.length > 0 ? (
+            {draft.scannedItems.length > 0 ? (
               <View style={styles.scannedItemsWrap}>
-                <Text style={styles.scannedItemsHeading}>
-                  Món nhận diện ({scannedItems.length} món):
-                </Text>
-                <View style={styles.scannedItemsList}>
-                  {scannedItems.map((item, idx) => (
-                    <View key={`${item.name}_${idx}`} style={styles.scannedItemRow}>
-                      <Text style={styles.scannedItemName} numberOfLines={1}>
-                        {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}
-                        {item.name}
-                      </Text>
-                      <Text style={styles.scannedItemPrice}>
-                        {formatVnd(item.priceVnd)}
-                      </Text>
-                    </View>
-                  ))}
+                <View style={styles.scannedHeaderRow}>
+                  <Text style={styles.scannedItemsHeading}>
+                    {`Món nhận diện (${draft.scannedItems.length} món) · Chạm để chọn người`}
+                  </Text>
                 </View>
+                <View style={styles.scannedItemsList}>
+                  {draft.scannedItems.map((item, idx) => {
+                    const assignedIds = (item.assignedMemberIds ?? []).filter((id) =>
+                      members.some((m) => m.id === id)
+                    );
+                    const isCustom =
+                      assignedIds.length > 0 && assignedIds.length < members.length;
+                    const assigneeNames = assignedIds
+                      .map((id) => members.find((m) => m.id === id)?.displayName ?? '')
+                      .filter(Boolean);
+                    const chipLabel = isCustom
+                      ? assigneeNames.length <= 2
+                        ? `👤 ${assigneeNames.join(', ')}`
+                        : `👤 ${assignedIds.length} người · ${assigneeNames.slice(0, 2).join(', ')} +${assigneeNames.length - 2}`
+                      : '🍽️ Cả bàn';
+
+                    return (
+                      <Pressable
+                        key={`${item.name}_${idx}`}
+                        accessibilityRole="button"
+                        onPress={() => setActiveItemIndex(idx)}
+                        style={({ pressed }) => [
+                          styles.scannedItemCard,
+                          isCustom && styles.scannedItemCardAssigned,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <View style={styles.scannedItemTopRow}>
+                          <Text style={styles.scannedItemName} numberOfLines={1}>
+                            {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}
+                            {item.name}
+                          </Text>
+                          <Text style={styles.scannedItemPrice}>
+                            {formatVnd(item.priceVnd)}
+                          </Text>
+                        </View>
+                        <View style={styles.scannedItemBottomRow}>
+                          <View
+                            style={[
+                              styles.itemAssigneeChip,
+                              isCustom && styles.itemAssigneeChipActive,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.itemAssigneeChipText,
+                                isCustom && styles.itemAssigneeChipTextActive,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {chipLabel}
+                            </Text>
+                          </View>
+                          <Text style={styles.itemEditHint}>Chọn người ›</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {hasCustomItemAssignments && draft.amountVnd > 0 ? (
+                  <View style={styles.itemizedSummaryCard}>
+                    <Text style={styles.itemizedSummaryTitle}>
+                      🍺 Tạm tính chia theo món từng người:
+                    </Text>
+                    <View style={styles.itemizedSummaryGrid}>
+                      {members.map((m) => (
+                        <View key={m.id} style={styles.itemizedMemberChip}>
+                          <Text style={styles.itemizedMemberName} numberOfLines={1}>
+                            {m.displayName}
+                          </Text>
+                          <Text style={styles.itemizedMemberAmount}>
+                            {formatVnd(draft.exactAmountsByMember[m.id] ?? 0)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                    {itemizedOverflowed ? (
+                      <Text style={styles.itemizedOverflowNote}>
+                        Tổng món riêng vượt tổng bill (do giảm giá/voucher) — đã tự chia lại đúng tỷ lệ.
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -571,20 +758,37 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           </View>
 
           <View style={styles.settingsCard}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setPayerModalOpen(true)}
-              style={({ pressed }) => [
-                styles.settingRow,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.settingLabel}>Người trả</Text>
-              <View style={styles.settingRight}>
-                <Text style={styles.settingValue}>{payerName}</Text>
-                <IconChevron width={16} height={16} />
-              </View>
-            </Pressable>
+            <View style={styles.payerSettingWrap}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setPayerModalOpen(true)}
+                style={({ pressed }) => [
+                  styles.settingRowFlex,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.settingLabel}>Người trả</Text>
+                <View style={styles.settingRight}>
+                  <Text style={styles.settingValue} numberOfLines={1}>
+                    {draft.isPaidFromPot ? `Quỹ chung (${payerName} ghi)` : payerName}
+                  </Text>
+                  <IconChevron width={16} height={16} />
+                </View>
+              </Pressable>
+              {!draft.isPaidFromPot && members.length >= 2 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setLuckyWheelOpen(true)}
+                  hitSlop={4}
+                  style={({ pressed }) => [
+                    styles.wheelPillBtn,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.wheelPillText}>🎡 Quay người bao</Text>
+                </Pressable>
+              ) : null}
+            </View>
 
             <View style={styles.divider} />
 
@@ -621,6 +825,35 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   {formatDateVi(draft.expenseDateIso)}
                 </Text>
                 <IconChevron width={16} height={16} />
+              </View>
+            </Pressable>
+
+            <View style={styles.divider} />
+
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: draft.isPaidFromPot }}
+              onPress={() =>
+                draft.patchDraft({ isPaidFromPot: !draft.isPaidFromPot })
+              }
+              style={({ pressed }) => [
+                styles.potToggleRow,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.potToggleTextCol}>
+                <Text style={styles.potToggleTitle}>🐷 Trừ từ quỹ chung nhóm</Text>
+                <Text style={styles.potToggleSub}>
+                  Trừ vào số dư quỹ, không tạo nợ cá nhân
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.checkbox,
+                  draft.isPaidFromPot ? styles.checkboxOn : styles.checkboxOff,
+                ]}
+              >
+                {draft.isPaidFromPot ? <IconCheck width={15} height={15} /> : null}
               </View>
             </Pressable>
           </View>
@@ -853,6 +1086,115 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Item Assignee Modal ("Ai uống bia tick người đó") */}
+      <Modal
+        visible={activeItemIndex !== null && Boolean(draft.scannedItems[activeItemIndex])}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActiveItemIndex(null)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setActiveItemIndex(null)}
+        >
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            {activeItemIndex !== null && draft.scannedItems[activeItemIndex] ? (
+              <>
+                <Text style={styles.modalTitle}>
+                  {draft.scannedItems[activeItemIndex]!.name}
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  {`Giá món: ${formatVnd(
+                    draft.scannedItems[activeItemIndex]!.priceVnd
+                  )} · Không chọn ai = Cả bàn chia đều`}
+                </Text>
+
+                <ScrollView
+                  style={styles.itemMemberScroll}
+                  contentContainerStyle={styles.modalList}
+                >
+                  {members.map((member) => {
+                    const currentIds =
+                      draft.scannedItems[activeItemIndex!]!.assignedMemberIds ?? [];
+                    const checked = currentIds.includes(member.id);
+                    const initial = (member.displayName.trim()[0] ?? '?').toUpperCase();
+                    return (
+                      <Pressable
+                        key={member.id}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked }}
+                        onPress={() => toggleMemberForActiveItem(member.id)}
+                        style={[
+                          styles.payerRow,
+                          checked && styles.payerRowSelected,
+                        ]}
+                      >
+                        <View style={styles.memberAvatarRow}>
+                          <View style={styles.memberAvatarCircle}>
+                            <Text style={styles.memberAvatarLetter}>{initial}</Text>
+                          </View>
+                          <Text style={styles.payerName}>
+                            {member.displayName}
+                            {member.isMe ? ' (bạn)' : ''}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.checkbox,
+                            checked ? styles.checkboxOn : styles.checkboxOff,
+                          ]}
+                        >
+                          {checked ? <IconCheck width={14} height={14} /> : null}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+
+                <View style={styles.modalActions}>
+                  <ChiaNeButton
+                    label="Chọn tất cả (Cả bàn)"
+                    variant="secondary"
+                    onPress={resetActiveItemToAll}
+                  />
+                  <ChiaNeButton
+                    label="Xong"
+                    variant="primary"
+                    onPress={() => setActiveItemIndex(null)}
+                  />
+                </View>
+              </>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Lucky Wheel Modal ("Vòng quay nhân phẩm") */}
+      <LuckyWheelModal
+        visible={luckyWheelOpen}
+        members={members}
+        onClose={() => setLuckyWheelOpen(false)}
+        onSelectWinner={(winner, mode) => {
+          if (mode === 'TREAT_ALL') {
+            setItemizedOverflowed(false);
+            draft.patchDraft({
+              paidByMemberId: winner.id,
+              splitMethod: 'EQUAL',
+              participantIds: [winner.id],
+              isPaidFromPot: false,
+              scannedItems: [],
+            });
+            setScanNotice(`🎉 ${winner.displayName} bao trọn chầu này!`);
+          } else {
+            draft.patchDraft({
+              paidByMemberId: winner.id,
+              isPaidFromPot: false,
+            });
+          }
+          setLuckyWheelOpen(false);
+        }}
+      />
     </ScreenContainer>
   );
 }
@@ -978,10 +1320,15 @@ const styles = StyleSheet.create({
     color: colors.coral,
   },
   scannedItemsWrap: {
-    gap: 6,
+    gap: 8,
     borderTopWidth: 1,
     borderTopColor: colors.line,
     paddingTop: 10,
+  },
+  scannedHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   scannedItemsHeading: {
     fontFamily: fonts.semiBold,
@@ -989,27 +1336,114 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   scannedItemsList: {
-    backgroundColor: colors.paper,
-    borderRadius: 8,
-    padding: 10,
-    gap: 6,
+    gap: 8,
   },
-  scannedItemRow: {
+  scannedItemCard: {
+    backgroundColor: colors.paper,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  scannedItemCardAssigned: {
+    borderColor: colors.purple,
+    backgroundColor: '#FAF8FF',
+  },
+  scannedItemTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  scannedItemBottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   scannedItemName: {
-    fontFamily: fonts.regular,
+    fontFamily: fonts.semiBold,
     fontSize: 12,
     color: colors.ink,
     flex: 1,
     marginRight: 8,
   },
   scannedItemPrice: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.bold,
     fontSize: 12,
     color: colors.forest,
+  },
+  itemAssigneeChip: {
+    backgroundColor: colors.white,
+    borderRadius: radii.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: colors.line,
+    maxWidth: '72%',
+  },
+  itemAssigneeChipActive: {
+    backgroundColor: colors.lavender,
+    borderColor: colors.purple,
+  },
+  itemAssigneeChipText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.ink,
+  },
+  itemAssigneeChipTextActive: {
+    fontFamily: fonts.semiBold,
+    color: colors.purple,
+  },
+  itemEditHint: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.forest,
+  },
+  itemizedSummaryCard: {
+    backgroundColor: colors.lime,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+    marginTop: 2,
+  },
+  itemizedSummaryTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    color: colors.forest,
+  },
+  itemizedSummaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  itemizedMemberChip: {
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: '47%',
+    flexGrow: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 6,
+  },
+  itemizedMemberName: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.ink,
+    flex: 1,
+  },
+  itemizedMemberAmount: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+    color: colors.forest,
+  },
+  itemizedOverflowNote: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.coral,
   },
   amountEyebrow: {
     fontFamily: fonts.semiBold,
@@ -1060,6 +1494,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  payerSettingWrap: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  settingRowFlex: {
+    flex: 1,
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  wheelPillBtn: {
+    backgroundColor: colors.lavender,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  wheelPillText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.purple,
+  },
+  potToggleRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  potToggleTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  potToggleTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.ink,
+  },
+  potToggleSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.muted,
+  },
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: {
+    backgroundColor: colors.forest,
+  },
+  checkboxOff: {
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.line,
   },
   pressed: {
     opacity: 0.8,
@@ -1151,6 +1648,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.forest,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  itemMemberScroll: {
+    maxHeight: 280,
+  },
+  memberAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  memberAvatarCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.lavender,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberAvatarLetter: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    color: colors.purple,
   },
   quickDatesRow: {
     flexDirection: 'row',

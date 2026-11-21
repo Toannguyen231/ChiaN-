@@ -64,6 +64,7 @@ export function serializeExpenseRecord(
     note: string | null;
     receiptImageUrl: string | null;
     clientMutationId: string | null;
+    isPaidFromPot?: boolean;
     createdAt: Date;
     updatedAt: Date;
     paidByMember: { displayName: string };
@@ -95,6 +96,7 @@ export function serializeExpenseRecord(
     note: expense.note,
     receiptImageUrl: expense.receiptImageUrl,
     clientMutationId: expense.clientMutationId,
+    isPaidFromPot: Boolean(expense.isPaidFromPot),
     myShareVnd: mySplit?.amountVnd ?? 0,
     splitCount: expense.splits.length,
     splits: expense.splits.map((split) => ({

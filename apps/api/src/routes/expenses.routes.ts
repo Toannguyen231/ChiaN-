@@ -191,6 +191,9 @@ export async function registerExpensesRoutes(
             ...(input.receiptImageUrl !== undefined
               ? { receiptImageUrl: input.receiptImageUrl }
               : {}),
+            ...(input.isPaidFromPot !== undefined
+              ? { isPaidFromPot: input.isPaidFromPot }
+              : {}),
             splits: {
               create: computedSplits.map((s) => ({
                 memberId: s.memberId,

@@ -15,6 +15,7 @@ import { registerGroupsRoutes } from './routes/groups.routes';
 import { registerHealthRoutes } from './routes/health.routes';
 import { registerInvitesRoutes } from './routes/invites.routes';
 import { registerOcrRoutes } from './routes/ocr.routes';
+import { registerPotRoutes } from './routes/pot.routes';
 import { registerSettlementsRoutes } from './routes/settlements.routes';
 import { registerSyncRoutes } from './routes/sync.routes';
 import { createOtpProvider, OtpService, type OtpDeliveryProvider } from './services/otp.service';
@@ -139,6 +140,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerOcrRoutes(app, {
     requireAuthOrGuest,
     geminiApiKey: config.GEMINI_API_KEY,
+  });
+  await registerPotRoutes(app, {
+    prisma,
+    requireAuthOrGuest,
   });
 
   if (ownsPrisma) {

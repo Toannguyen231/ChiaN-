@@ -176,6 +176,7 @@ export interface CreateExpenseParams {
     expenseDate?: string;
     note?: string;
     receiptImageUrl?: string | null;
+    isPaidFromPot?: boolean;
     clientMutationId?: string;
     splits: SplitInputItem[];
   };
@@ -244,6 +245,7 @@ export async function createExpenseInGroup(
         expenseDate,
         note: input.note ?? null,
         receiptImageUrl: input.receiptImageUrl ?? null,
+        isPaidFromPot: Boolean(input.isPaidFromPot),
         clientMutationId: input.clientMutationId ?? null,
         splits: {
           create: computedSplits.map((s) => ({
@@ -265,7 +267,9 @@ export async function createExpenseInGroup(
       groupId,
       actorMemberId,
       type: 'EXPENSE_CREATED',
-      title: `${payerName} đã trả ${expense.title}`,
+      title: expense.isPaidFromPot
+        ? `Quỹ chung đã chi ${expense.title}`
+        : `${payerName} đã trả ${expense.title}`,
       subtitle: `${formatVnd(expense.amountVnd)} · ${computedSplits.length} người`,
       metadata: {
         expenseId: expense.id,

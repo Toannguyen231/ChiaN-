@@ -168,8 +168,15 @@ export function ExpenseDetailsScreen({ navigation, route }: Props) {
             <Text style={styles.title}>{expense.title}</Text>
             <Text style={styles.amount}>{formatVnd(expense.amountVnd)}</Text>
             <Text style={styles.meta}>
-              {`${expense.paidByName} đã trả · ${formatDateDdMmYyyy(expense.expenseDate)}`}
+              {`${expense.isPaidFromPot ? '🐷 Quỹ chung đã chi' : `${expense.paidByName} đã trả`} · ${formatDateDdMmYyyy(expense.expenseDate)}`}
             </Text>
+            {expense.isPaidFromPot ? (
+              <View style={styles.potBadge}>
+                <Text style={styles.potBadgeText}>
+                  🐷 Trừ từ quỹ chung nhóm · Không tính nợ cá nhân
+                </Text>
+              </View>
+            ) : null}
             {expense.note ? (
               <View style={styles.noteBox}>
                 <Text style={styles.noteText}>{expense.note}</Text>
@@ -315,6 +322,19 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 12,
     color: colors.muted,
+    textAlign: 'center',
+  },
+  potBadge: {
+    backgroundColor: colors.lime,
+    borderRadius: radii.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginTop: 2,
+  },
+  potBadgeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.forest,
   },
   noteBox: {
     marginTop: 6,

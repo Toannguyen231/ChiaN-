@@ -6,6 +6,7 @@ export interface DebtExpenseInput {
   paidByMemberId: string;
   splits: SplitShare[];
   deletedAt?: string | null;
+  isPaidFromPot?: boolean;
 }
 
 export interface DebtSettlementInput {
@@ -42,7 +43,7 @@ export function calculateNetBalances(
   }
 
   for (const expense of expenses) {
-    if (expense.deletedAt) {
+    if (expense.deletedAt || expense.isPaidFromPot) {
       continue;
     }
     if (!balances.has(expense.paidByMemberId)) {

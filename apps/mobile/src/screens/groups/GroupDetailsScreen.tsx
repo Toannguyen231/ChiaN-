@@ -3,13 +3,20 @@ import {
   Modal,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { formatVnd, type ExpenseDto } from '@chiane/shared';
+import {
+  formatVnd,
+  parseVndInput,
+  type ExpenseDto,
+  type GroupPotDto,
+  type SettlementDto,
+} from '@chiane/shared';
 import IconChevron from '../../../assets/figma/icon-chevron.svg';
 import IconPlusLight from '../../../assets/figma/icon-plus-light.svg';
 import IconPlus from '../../../assets/figma/icon-plus.svg';
@@ -23,15 +30,24 @@ import {
   GROUP_CATEGORY_META,
   IconGear,
   IconUserPlus,
+  LuckyWheelModal,
   ScreenContainer,
   StateView,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
 import { ApiClientError } from '../../services/apiClient';
 import { groupsApi } from '../../services/groupsApi';
+import { potApi } from '../../services/potApi';
+import { settlementsApi } from '../../services/settlementsApi';
 import { useAuthStore } from '../../store/authStore';
+import { useExpenseDraftStore } from '../../store/expenseDraftStore';
 import { useGroupsStore } from '../../store/groupsStore';
 import { colors, fonts, radii, sizes, typography } from '../../theme/tokens';
+import {
+  calculateTripRecap,
+  type TripRecapData,
+} from '../../utils/recapCalculator';
+import { TripRecapModal } from './TripRecapModal';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'GroupDetails'>;
 
@@ -60,6 +76,18 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
 
+  const [pot, setPot] = useState<GroupPotDto | null>(null);
+  const [luckyWheelOpen, setLuckyWheelOpen] = useState(false);
+  const [recapOpen, setRecapOpen] = useState(false);
+  const [recapData, setRecapData] = useState<TripRecapData | null>(null);
+  const [potContributeOpen, setPotContributeOpen] = useState(false);
+  const [potDetailOpen, setPotDetailOpen] = useState(false);
+  const [potMemberId, setPotMemberId] = useState('');
+  const [potAmountVnd, setPotAmountVnd] = useState(500_000);
+  const [potNote, setPotNote] = useState('');
+  const [potError, setPotError] = useState<string | null>(null);
+  const [potSubmitting, setPotSubmitting] = useState(false);
+
   const loadGroup = useCallback(
     async (isRefresh = false) => {
       if (isRefresh) {
@@ -69,8 +97,14 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
       }
       setErrorText(null);
       try {
-        const detail = await fetchGroupDetail(groupId);
+        const [detail, potRes] = await Promise.all([
+          fetchGroupDetail(groupId),
+          potApi.getPot(groupId).catch(() => null),
+        ]);
         setGroup(detail);
+        if (potRes) {
+          setPot(potRes);
+        }
       } catch (err) {
         setErrorText(
           err instanceof ApiClientError
@@ -131,10 +165,169 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
     }
   };
 
+  const handleOpenRecap = async () => {
+    if (!group) return;
+    const settlements = await settlementsApi
+      .listSettlements(group.id)
+      .then((res) => res.settlements)
+      .catch(() => [] as SettlementDto[]);
+    setRecapData(calculateTripRecap(group, settlements));
+    setRecapOpen(true);
+  };
+
+  const handleOpenPotContribute = () => {
+    if (!group) return;
+    setPotMemberId(group.myMemberId);
+    setPotAmountVnd(500_000);
+    setPotNote('');
+    setPotError(null);
+    setPotContributeOpen(true);
+  };
+
+  const handleContributePotSubmit = async () => {
+    if (!group) return;
+    if (potAmountVnd <= 0) {
+      setPotError('Vui lòng nhập số tiền góp quỹ lớn hơn 0 ₫.');
+      return;
+    }
+    setPotSubmitting(true);
+    setPotError(null);
+    try {
+      const targetMemberId =
+        group.myRole === 'GUEST'
+          ? group.myMemberId
+          : potMemberId || group.myMemberId;
+      const res = await potApi.contribute(group.id, {
+        memberId: targetMemberId,
+        amountVnd: potAmountVnd,
+        ...(potNote.trim() ? { note: potNote.trim() } : {}),
+      });
+      setPot(res.pot);
+      setPotContributeOpen(false);
+      void loadGroup(false);
+    } catch (err) {
+      setPotError(
+        err instanceof ApiClientError
+          ? err.message
+          : 'Không thể ghi nhận tiền góp quỹ lúc này.'
+      );
+    } finally {
+      setPotSubmitting(false);
+    }
+  };
+
   const categoryMeta = group
     ? GROUP_CATEGORY_META[group.category]
     : GROUP_CATEGORY_META.HOUSEHOLD;
   const CategoryIcon = categoryMeta.Icon;
+
+  const hasPotActivity =
+    Boolean(pot) &&
+    ((pot?.totalContributedVnd ?? 0) > 0 || (pot?.totalSpentFromPotVnd ?? 0) > 0);
+  const potProgressPct =
+    pot && pot.totalContributedVnd > 0
+      ? Math.max(
+          0,
+          Math.min(
+            100,
+            Math.round((pot.remainingPotVnd / pot.totalContributedVnd) * 100)
+          )
+        )
+      : 0;
+
+  const socialFunRow = group ? (
+    <View style={styles.socialFunRow}>
+      {group.members.length >= 2 && !group.isArchived ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setLuckyWheelOpen(true)}
+          style={({ pressed }) => [styles.funPillBtn, styles.funPillLavender, pressed && styles.pressed]}
+        >
+          <Text style={styles.funPillLavenderText}>🎡 Quay người bao</Text>
+        </Pressable>
+      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => void handleOpenRecap()}
+        style={({ pressed }) => [styles.funPillBtn, styles.funPillForest, pressed && styles.pressed]}
+      >
+        <Text style={styles.funPillForestText}>🏆 Tổng kết chuyến đi</Text>
+      </Pressable>
+    </View>
+  ) : null;
+
+  const potSummaryCard = group ? (
+    hasPotActivity && pot ? (
+      <View style={styles.potCard}>
+        <View style={styles.potHeaderRow}>
+          <View style={styles.potTitleCol}>
+            <Text style={styles.potTitle}>🐷 Quỹ chung nhóm</Text>
+            <Text
+              style={[
+                styles.potRemainingText,
+                pot.remainingPotVnd < 0 && styles.potNegativeText,
+              ]}
+            >
+              {`Quỹ còn lại: ${formatVnd(pot.remainingPotVnd)} / ${formatVnd(
+                pot.totalContributedVnd
+              )}`}
+            </Text>
+          </View>
+          {!group.isArchived ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleOpenPotContribute}
+              style={({ pressed }) => [styles.potAddBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.potAddBtnText}>+ Góp quỹ</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View style={styles.potProgressTrack}>
+          <View
+            style={[
+              styles.potProgressFill,
+              {
+                width: `${potProgressPct}%`,
+                backgroundColor:
+                  pot.remainingPotVnd < 0 ? colors.coral : colors.forest,
+              },
+            ]}
+          />
+        </View>
+        <View style={styles.potFooterRow}>
+          <Text style={styles.potMetaText}>
+            {`Đã chi từ quỹ: ${formatVnd(pot.totalSpentFromPotVnd)}`}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setPotDetailOpen(true)}
+            hitSlop={6}
+          >
+            <Text style={styles.potDetailLink}>Chi tiết / Hoàn quỹ ›</Text>
+          </Pressable>
+        </View>
+      </View>
+    ) : (
+      <View style={styles.potEmptyCard}>
+        <View style={styles.potTitleCol}>
+          <Text style={styles.potTitle}>🐷 Quỹ chung nhóm (Heo đất)</Text>
+          <Text style={styles.potMetaText}>
+            Góp trước đầu chuyến, chi tới đâu trừ quỹ tới đó.
+          </Text>
+        </View>
+        {!group.isArchived ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={handleOpenPotContribute}
+            style={({ pressed }) => [styles.potAddBtn, pressed && styles.pressed]}
+          >
+            <Text style={styles.potAddBtnText}>+ Góp quỹ</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    )
+  ) : null;
 
   return (
     <ScreenContainer
@@ -266,6 +459,9 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                 />
               </View>
 
+              {socialFunRow}
+              {potSummaryCard}
+
               {!group.isArchived ? (
                 <View style={styles.emptyActions}>
                   <ChiaNeButton
@@ -322,6 +518,9 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                 </View>
               </View>
 
+              {socialFunRow}
+              {potSummaryCard}
+
               <View style={styles.tabsRow}>
                 <ChiaNeChip
                   label="Khoản chi"
@@ -358,7 +557,11 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                           <ExpenseRow
                             key={exp.id}
                             title={exp.title}
-                            subtitle={`${exp.paidByName} đã trả · ${exp.splitCount} người`}
+                            subtitle={`${
+                              exp.isPaidFromPot
+                                ? '🐷 Quỹ chung đã chi'
+                                : `${exp.paidByName} đã trả`
+                            } · ${exp.splitCount} người`}
                             amountText={formatVnd(exp.amountVnd)}
                             category={exp.category}
                             onPress={() =>
@@ -557,6 +760,270 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Contribute Pot Modal */}
+      <Modal
+        visible={potContributeOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={potSubmitting ? undefined : () => setPotContributeOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={potSubmitting ? undefined : () => setPotContributeOpen(false)}
+        >
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>🐷 Góp quỹ chung nhóm</Text>
+            <Text style={styles.modalDesc}>
+              Ghi nhận tiền mọi người đóng trước vào quỹ chung (Heo đất).
+            </Text>
+
+            {group ? (
+              group.myRole === 'GUEST' ? (
+                <View style={styles.potGuestBox}>
+                  <Text style={styles.potGuestText}>
+                    Người đóng góp: {group.members.find((m) => m.id === group.myMemberId)?.displayName ?? 'Bạn'}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.potMemberPicker}>
+                  <Text style={styles.potFieldLabel}>Người góp quỹ</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.potChipRow}
+                  >
+                    {group.members.map((m) => (
+                      <ChiaNeChip
+                        key={m.id}
+                        label={`${m.displayName}${m.isMe ? ' (bạn)' : ''}`}
+                        active={(potMemberId || group.myMemberId) === m.id}
+                        onPress={() => setPotMemberId(m.id)}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              )
+            ) : null}
+
+            <ChiaNeInput
+              label="Số tiền góp (₫)"
+              value={
+                potAmountVnd > 0
+                  ? formatVnd(potAmountVnd, { includeSymbol: false })
+                  : ''
+              }
+              onChangeText={(raw) => {
+                setPotAmountVnd(parseVndInput(raw));
+                if (potError) setPotError(null);
+              }}
+              keyboardType="number-pad"
+              placeholder="500.000"
+              errorText={potError}
+            />
+
+            <View style={styles.potPresetRow}>
+              {[
+                { label: '200k', value: 200_000 },
+                { label: '500k', value: 500_000 },
+                { label: '1 triệu', value: 1_000_000 },
+              ].map((preset) => (
+                <ChiaNeChip
+                  key={preset.value}
+                  label={preset.label}
+                  active={potAmountVnd === preset.value}
+                  onPress={() => {
+                    setPotAmountVnd(preset.value);
+                    if (potError) setPotError(null);
+                  }}
+                />
+              ))}
+            </View>
+
+            <ChiaNeInput
+              label="Ghi chú (không bắt buộc)"
+              value={potNote}
+              onChangeText={setPotNote}
+              placeholder="Ví dụ: Góp quỹ đợt 1 đi Đà Lạt"
+              maxLength={200}
+            />
+
+            <View style={styles.modalActions}>
+              <ChiaNeButton
+                label="Ghi nhận góp quỹ"
+                variant="primary"
+                loading={potSubmitting}
+                onPress={() => void handleContributePotSubmit()}
+              />
+              <ChiaNeButton
+                label="Đóng"
+                variant="quiet"
+                disabled={potSubmitting}
+                onPress={() => setPotContributeOpen(false)}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Pot Detail & Refund Modal */}
+      <Modal
+        visible={potDetailOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPotDetailOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setPotDetailOpen(false)}
+        >
+          <Pressable
+            style={[styles.modalCard, styles.potDetailModalCard]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={styles.modalTitle}>🐷 Chi tiết & Hoàn quỹ</Text>
+            {pot ? (
+              <ScrollView
+                style={styles.potDetailScroll}
+                contentContainerStyle={styles.potDetailScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.potStatsBar}>
+                  <View style={styles.potStatItem}>
+                    <Text style={styles.potStatLabel}>Đã góp</Text>
+                    <Text style={styles.potStatVal}>
+                      {formatVnd(pot.totalContributedVnd)}
+                    </Text>
+                  </View>
+                  <View style={styles.potStatItem}>
+                    <Text style={styles.potStatLabel}>Đã chi</Text>
+                    <Text style={styles.potStatVal}>
+                      {formatVnd(pot.totalSpentFromPotVnd)}
+                    </Text>
+                  </View>
+                  <View style={styles.potStatItem}>
+                    <Text style={styles.potStatLabel}>Còn lại</Text>
+                    <Text
+                      style={[
+                        styles.potStatVal,
+                        pot.remainingPotVnd < 0 && styles.potNegativeText,
+                      ]}
+                    >
+                      {formatVnd(pot.remainingPotVnd)}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.potSectionHeading}>
+                  Bảng tính hoàn quỹ thừa từng người
+                </Text>
+                <View style={styles.potSectionList}>
+                  {pot.memberSummaries.map((s) => {
+                    const refundColor =
+                      s.netRefundVnd > 0
+                        ? colors.forest
+                        : s.netRefundVnd < 0
+                          ? colors.coral
+                          : colors.muted;
+                    return (
+                      <View key={s.memberId} style={styles.potSummaryRow}>
+                        <View style={styles.potSummaryLeft}>
+                          <Text style={styles.potSummaryName}>
+                            {s.displayName}
+                            {s.isMe ? ' (bạn)' : ''}
+                          </Text>
+                          <Text style={styles.potSummarySub}>
+                            {`Góp ${formatVnd(s.contributedVnd)} · Tiêu ${formatVnd(
+                              s.consumedFromPotVnd
+                            )}`}
+                          </Text>
+                        </View>
+                        <Text style={[styles.potRefundVal, { color: refundColor }]}>
+                          {formatVnd(s.netRefundVnd, { showSign: true })}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.potSectionHeading}>
+                  {`Lịch sử góp quỹ (${pot.contributions.length})`}
+                </Text>
+                {pot.contributions.length === 0 ? (
+                  <Text style={styles.potMetaText}>Chưa có lượt góp quỹ nào.</Text>
+                ) : (
+                  <View style={styles.potSectionList}>
+                    {pot.contributions.map((c) => {
+                      const d = new Date(c.createdAt);
+                      const dateLabel = `${d.getDate().toString().padStart(2, '0')}/${(
+                        d.getMonth() + 1
+                      )
+                        .toString()
+                        .padStart(2, '0')}`;
+                      return (
+                        <View key={c.id} style={styles.potHistoryRow}>
+                          <View style={styles.potSummaryLeft}>
+                            <Text style={styles.potSummaryName}>{c.memberName}</Text>
+                            <Text style={styles.potSummarySub}>
+                              {c.note ? `${dateLabel} · ${c.note}` : dateLabel}
+                            </Text>
+                          </View>
+                          <Text style={styles.potContribAmount}>
+                            {`+${formatVnd(c.amountVnd)}`}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </ScrollView>
+            ) : null}
+
+            <View style={styles.modalActions}>
+              {group && !group.isArchived ? (
+                <ChiaNeButton
+                  label="+ Góp thêm vào quỹ"
+                  variant="primary"
+                  onPress={() => {
+                    setPotDetailOpen(false);
+                    handleOpenPotContribute();
+                  }}
+                />
+              ) : null}
+              <ChiaNeButton
+                label="Đóng"
+                variant="quiet"
+                onPress={() => setPotDetailOpen(false)}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <LuckyWheelModal
+        visible={luckyWheelOpen}
+        members={group?.members ?? []}
+        onClose={() => setLuckyWheelOpen(false)}
+        onSelectWinner={(winner, mode) => {
+          if (!group) return;
+          const draftStore = useExpenseDraftStore.getState();
+          draftStore.initNew(group.id, group.members, group.myMemberId);
+          draftStore.patchDraft({
+            paidByMemberId: winner.id,
+            ...(mode === 'TREAT_ALL'
+              ? { splitMethod: 'EQUAL', participantIds: [winner.id] }
+              : {}),
+          });
+          setLuckyWheelOpen(false);
+          navigation.navigate('AddExpense', { groupId: group.id });
+        }}
+      />
+
+      <TripRecapModal
+        visible={recapOpen}
+        recap={recapData}
+        onClose={() => setRecapOpen(false)}
+      />
 
       <ConfirmDialog
         visible={leaveGuestConfirmOpen}
@@ -866,5 +1333,220 @@ const styles = StyleSheet.create({
   modalActions: {
     gap: 10,
     marginTop: 4,
+  },
+  socialFunRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  funPillBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radii.button,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  funPillLavender: {
+    backgroundColor: colors.lavender,
+  },
+  funPillLavenderText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.purple,
+  },
+  funPillForest: {
+    backgroundColor: colors.forest,
+  },
+  funPillForestText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.lime,
+  },
+  potCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  potEmptyCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  potHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  potTitleCol: {
+    flex: 1,
+    gap: 3,
+  },
+  potTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: colors.ink,
+  },
+  potRemainingText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.forest,
+  },
+  potNegativeText: {
+    color: colors.coral,
+  },
+  potAddBtn: {
+    backgroundColor: colors.lime,
+    borderRadius: radii.chip,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  potAddBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    color: colors.forest,
+  },
+  potProgressTrack: {
+    height: 8,
+    backgroundColor: colors.paper,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  potProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  potFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  potMetaText: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.muted,
+  },
+  potDetailLink: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.purple,
+  },
+  potGuestBox: {
+    backgroundColor: colors.paper,
+    borderRadius: 12,
+    padding: 12,
+  },
+  potGuestText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.ink,
+  },
+  potMemberPicker: {
+    gap: 6,
+  },
+  potFieldLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.ink,
+  },
+  potChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  potPresetRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  potDetailModalCard: {
+    maxHeight: '85%',
+  },
+  potDetailScroll: {
+    maxHeight: 380,
+  },
+  potDetailScrollContent: {
+    gap: 12,
+  },
+  potStatsBar: {
+    flexDirection: 'row',
+    backgroundColor: colors.paper,
+    borderRadius: 14,
+    padding: 12,
+    gap: 8,
+  },
+  potStatItem: {
+    flex: 1,
+    gap: 2,
+  },
+  potStatLabel: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.muted,
+  },
+  potStatVal: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: colors.forest,
+  },
+  potSectionHeading: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.ink,
+    marginTop: 2,
+  },
+  potSectionList: {
+    backgroundColor: colors.paper,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  potSummaryRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  potHistoryRow: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  potSummaryLeft: {
+    flex: 1,
+    gap: 1,
+  },
+  potSummaryName: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.ink,
+  },
+  potSummarySub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.muted,
+  },
+  potRefundVal: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+  },
+  potContribAmount: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: colors.forest,
   },
 });

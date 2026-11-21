@@ -29,6 +29,7 @@ const PAYMENT_ACTIVITY_TYPES: ActivityType[] = [
   'SETTLEMENT_CONFIRMED',
   'SETTLEMENT_REJECTED',
   'REMINDER_SENT',
+  'POT_CONTRIBUTED',
 ];
 
 export async function registerActivityRoutes(

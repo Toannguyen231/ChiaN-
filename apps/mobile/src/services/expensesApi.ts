@@ -15,6 +15,7 @@ export interface CreateExpenseInput {
   expenseDate?: string;
   note?: string;
   receiptImageUrl?: string | null;
+  isPaidFromPot?: boolean;
   clientMutationId?: string;
   splits: Array<{
     memberId: string;

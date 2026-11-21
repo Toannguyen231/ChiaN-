@@ -188,6 +188,7 @@ export const createExpenseSchema = z.object({
   expenseDate: z.string().datetime().optional(),
   note: z.string().trim().max(300).optional(),
   receiptImageUrl: z.string().trim().max(10_000_000).nullable().optional(),
+  isPaidFromPot: z.boolean().optional().default(false),
   clientMutationId: z.string().trim().min(8).max(120).optional(),
   splits: z.array(expenseSplitEntrySchema).min(1, 'Cần ít nhất 1 người tham gia'),
 });
@@ -202,6 +203,7 @@ export const updateExpenseSchema = z
     expenseDate: z.string().datetime().optional(),
     note: z.string().trim().max(300).nullable().optional(),
     receiptImageUrl: z.string().trim().max(10_000_000).nullable().optional(),
+    isPaidFromPot: z.boolean().optional(),
     splits: z.array(expenseSplitEntrySchema).min(1).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
@@ -273,3 +275,11 @@ export const scanReceiptSchema = z.object({
 });
 
 export type ScanReceiptInput = z.infer<typeof scanReceiptSchema>;
+
+export const contributePotSchema = z.object({
+  memberId: z.string().trim().min(1).optional(),
+  amountVnd: z.number().int().positive('Số tiền góp quỹ phải lớn hơn 0'),
+  note: z.string().trim().max(200).optional(),
+});
+
+export type ContributePotInput = z.infer<typeof contributePotSchema>;

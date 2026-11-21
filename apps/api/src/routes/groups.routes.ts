@@ -501,19 +501,22 @@ export async function registerGroupsRoutes(
 
       for (const exp of expenses) {
         const mySplit = exp.splits[0]?.amountVnd ?? 0;
-        const paidContribution = exp.paidByMemberId === memberId ? exp.amountVnd : 0;
+        const paidContribution =
+          !exp.isPaidFromPot && exp.paidByMemberId === memberId ? exp.amountVnd : 0;
+        const signedImpactVnd = exp.isPaidFromPot ? 0 : paidContribution - mySplit;
         totalPaidVnd += paidContribution;
-        totalShareVnd += mySplit;
+        totalShareVnd += exp.isPaidFromPot ? 0 : mySplit;
         transactions.push({
           id: exp.id,
           kind: 'EXPENSE',
           title: exp.title,
-          subtitle:
-            exp.paidByMemberId === memberId
+          subtitle: exp.isPaidFromPot
+            ? 'Trừ từ quỹ chung nhóm'
+            : exp.paidByMemberId === memberId
               ? 'Đã trả cho nhóm'
               : `${exp.paidByMember.displayName} đã trả`,
           amountVnd: exp.amountVnd,
-          signedImpactVnd: paidContribution - mySplit,
+          signedImpactVnd,
           occurredAt: exp.expenseDate.toISOString(),
         });
       }

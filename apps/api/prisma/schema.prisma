@@ -66,9 +66,10 @@ model Group {
   updatedAt       DateTime          @updatedAt
   members         GroupMember[]
   expenses        Expense[]
-  settlements     Settlement[]
-  reminders       PaymentReminder[]
-  activities      ActivityLog[]
+  settlements      Settlement[]
+  reminders        PaymentReminder[]
+  activities       ActivityLog[]
+  potContributions GroupPotContribution[]
 
   @@index([createdByUserId])
 }
@@ -89,9 +90,10 @@ model GroupMember {
   expenseSplits       ExpenseSplit[]
   sentSettlements     Settlement[]      @relation("SettlementFrom")
   receivedSettlements Settlement[]      @relation("SettlementTo")
-  sentReminders       PaymentReminder[] @relation("ReminderSender")
-  receivedReminders   PaymentReminder[] @relation("ReminderRecipient")
+  sentReminders       PaymentReminder[]      @relation("ReminderSender")
+  receivedReminders   PaymentReminder[]      @relation("ReminderRecipient")
   activities          ActivityLog[]
+  potContributions    GroupPotContribution[]
 
   @@unique([groupId, userId])
   @@index([groupId, status])
@@ -112,6 +114,7 @@ model Expense {
   expenseDate       DateTime       @default(now())
   note              String?
   receiptImageUrl   String?
+  isPaidFromPot     Boolean        @default(false)
   clientMutationId  String?        @unique
   deletedAt         DateTime?
   createdAt         DateTime       @default(now())
@@ -188,4 +191,18 @@ model ActivityLog {
   createdAt     DateTime     @default(now())
 
   @@index([groupId, createdAt])
+}
+
+model GroupPotContribution {
+  id        String      @id @default(cuid())
+  groupId   String
+  group     Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    GroupMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  amountVnd Int
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@index([groupId, createdAt])
+  @@index([memberId])
 }

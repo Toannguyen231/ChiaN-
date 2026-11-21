@@ -65,6 +65,7 @@ export async function computeGroupFinancials(
         amountVnd: true,
         paidByMemberId: true,
         deletedAt: true,
+        isPaidFromPot: true,
         splits: {
           select: {
             memberId: true,
@@ -91,6 +92,7 @@ export async function computeGroupFinancials(
       amountVnd: e.amountVnd,
       paidByMemberId: e.paidByMemberId,
       deletedAt: e.deletedAt ? e.deletedAt.toISOString() : null,
+      isPaidFromPot: e.isPaidFromPot,
       splits: e.splits.map((s) => ({
         memberId: s.memberId,
         amountVnd: s.amountVnd,

@@ -3,6 +3,7 @@ import type {
   ExpenseCategory,
   ExpenseDto,
   GroupMemberDto,
+  ReceiptItemDto,
   SplitMethod,
 } from '@chiane/shared';
 
@@ -17,6 +18,8 @@ export interface ExpenseDraftState {
   expenseDateIso: string;
   note: string;
   receiptImageUrl: string;
+  isPaidFromPot: boolean;
+  scannedItems: ReceiptItemDto[];
   participantIds: string[];
   exactAmountsByMember: Record<string, number>;
   percentageBpsByMember: Record<string, number>;
@@ -53,6 +56,8 @@ export const useExpenseDraftStore = create<ExpenseDraftState>((set) => ({
   expenseDateIso: new Date().toISOString(),
   note: '',
   receiptImageUrl: '',
+  isPaidFromPot: false,
+  scannedItems: [],
   participantIds: [],
   exactAmountsByMember: {},
   percentageBpsByMember: {},
@@ -74,6 +79,8 @@ export const useExpenseDraftStore = create<ExpenseDraftState>((set) => ({
       expenseDateIso: new Date().toISOString(),
       note: '',
       receiptImageUrl: '',
+      isPaidFromPot: false,
+      scannedItems: [],
       participantIds: memberIds,
       exactAmountsByMember: {},
       percentageBpsByMember: buildDefaultPercentages(memberIds),
@@ -105,6 +112,8 @@ export const useExpenseDraftStore = create<ExpenseDraftState>((set) => ({
       expenseDateIso: expense.expenseDate,
       note: expense.note ?? '',
       receiptImageUrl: expense.receiptImageUrl ?? '',
+      isPaidFromPot: Boolean(expense.isPaidFromPot),
+      scannedItems: [],
       participantIds,
       exactAmountsByMember: exactMap,
       percentageBpsByMember: pctMap,
@@ -127,6 +136,8 @@ export const useExpenseDraftStore = create<ExpenseDraftState>((set) => ({
       expenseDateIso: new Date().toISOString(),
       note: '',
       receiptImageUrl: '',
+      isPaidFromPot: false,
+      scannedItems: [],
       participantIds: [],
       exactAmountsByMember: {},
       percentageBpsByMember: {},

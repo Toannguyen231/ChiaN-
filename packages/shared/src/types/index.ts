@@ -23,7 +23,8 @@ export type ActivityType =
   | 'SETTLEMENT_REPORTED'
   | 'SETTLEMENT_CONFIRMED'
   | 'SETTLEMENT_REJECTED'
-  | 'REMINDER_SENT';
+  | 'REMINDER_SENT'
+  | 'POT_CONTRIBUTED';
 
 export interface UserProfile {
   id: string;
@@ -134,6 +135,7 @@ export interface ExpenseDto {
   note: string | null;
   receiptImageUrl: string | null;
   clientMutationId: string | null;
+  isPaidFromPot: boolean;
   myShareVnd: number;
   splitCount: number;
   splits: ExpenseSplitDto[];
@@ -307,6 +309,7 @@ export interface SyncExpensePayload {
   expenseDate?: string;
   note?: string;
   receiptImageUrl?: string | null;
+  isPaidFromPot?: boolean;
   splits: Array<{
     memberId: string;
     amountVnd?: number;
@@ -333,6 +336,7 @@ export interface ReceiptItemDto {
   name: string;
   priceVnd: number;
   quantity?: number;
+  assignedMemberIds?: string[];
 }
 
 export interface ReceiptScanResultDto {
@@ -342,4 +346,32 @@ export interface ReceiptScanResultDto {
   date?: string | null;
   items: ReceiptItemDto[];
   notice?: string | null;
+}
+
+export interface GroupPotContributionDto {
+  id: string;
+  groupId: string;
+  memberId: string;
+  memberName: string;
+  amountVnd: number;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface GroupPotMemberSummaryDto {
+  memberId: string;
+  displayName: string;
+  isMe: boolean;
+  contributedVnd: number;
+  consumedFromPotVnd: number;
+  netRefundVnd: number;
+}
+
+export interface GroupPotDto {
+  groupId: string;
+  totalContributedVnd: number;
+  totalSpentFromPotVnd: number;
+  remainingPotVnd: number;
+  contributions: GroupPotContributionDto[];
+  memberSummaries: GroupPotMemberSummaryDto[];
 }

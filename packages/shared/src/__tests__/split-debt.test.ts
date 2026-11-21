@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateEqualSplit,
+  calculateItemizedSplit,
   calculateNetBalances,
   calculatePercentageSplit,
   optimizeSettlements,
@@ -108,5 +109,88 @@ describe('debt calculation & minimum-transfer optimization', () => {
       { memberId: 'linh', netBalanceVnd: 500_000 },
       { memberId: 'minh', netBalanceVnd: -200_000 },
     ]);
+  });
+
+  it('ignores expenses paid from the group pot when calculating personal net balances', () => {
+    const members = ['an', 'linh', 'minh'];
+    const expenses = [
+      {
+        amountVnd: 600_000,
+        paidByMemberId: 'linh',
+        isPaidFromPot: true,
+        splits: [
+          { memberId: 'an', amountVnd: 200_000 },
+          { memberId: 'linh', amountVnd: 200_000 },
+          { memberId: 'minh', amountVnd: 200_000 },
+        ],
+      },
+      {
+        amountVnd: 300_000,
+        paidByMemberId: 'an',
+        isPaidFromPot: false,
+        splits: [
+          { memberId: 'an', amountVnd: 100_000 },
+          { memberId: 'linh', amountVnd: 100_000 },
+          { memberId: 'minh', amountVnd: 100_000 },
+        ],
+      },
+    ];
+
+    const balances = calculateNetBalances(members, expenses, []);
+    expect(balances).toEqual([
+      { memberId: 'an', netBalanceVnd: 200_000 },
+      { memberId: 'linh', netBalanceVnd: -100_000 },
+      { memberId: 'minh', netBalanceVnd: -100_000 },
+    ]);
+  });
+});
+
+describe('itemized bill splitting (Ai uong bia tick nguoi do)', () => {
+  it('assigns specific items to subsets and splits remaining shared pool equally', () => {
+    // 550k total: Beer 120k assigned to An & Minh; remaining 430k split across 4 (107.5k -> 107,500 each)
+    const result = calculateItemizedSplit(550_000, ['an', 'linh', 'minh', 'huy'], [
+      { name: 'Lẩu gà lá é', priceVnd: 380_000 },
+      { name: 'Bia Sài Gòn (4 lon)', priceVnd: 120_000, assignedMemberIds: ['an', 'minh'] },
+      { name: 'Bánh tráng & khăn lạnh', priceVnd: 50_000, assignedMemberIds: ['an', 'linh', 'minh', 'huy'] },
+    ]);
+
+    expect(result.overflowed).toBe(false);
+    expect(result.assignedTotalVnd).toBe(120_000);
+    expect(result.sharedPoolVnd).toBe(430_000);
+    expect(result.shares).toEqual([
+      { memberId: 'an', amountVnd: 167_500 },
+      { memberId: 'linh', amountVnd: 107_500 },
+      { memberId: 'minh', amountVnd: 167_500 },
+      { memberId: 'huy', amountVnd: 107_500 },
+    ]);
+    expect(result.shares.reduce((s, x) => s + x.amountVnd, 0)).toBe(550_000);
+  });
+
+  it('handles odd rounding and discount overflow while strictly preserving totalVnd', () => {
+    const oddResult = calculateItemizedSplit(200_000, ['a', 'b', 'c', 'd'], [
+      { name: 'Đặc sản', priceVnd: 100_000, assignedMemberIds: ['a', 'b', 'c'] },
+    ]);
+    expect(oddResult.overflowed).toBe(false);
+    expect(oddResult.shares.reduce((s, x) => s + x.amountVnd, 0)).toBe(200_000);
+    expect(oddResult.shares).toEqual([
+      { memberId: 'a', amountVnd: 58_334 },
+      { memberId: 'b', amountVnd: 58_333 },
+      { memberId: 'c', amountVnd: 58_333 },
+      { memberId: 'd', amountVnd: 25_000 },
+    ]);
+
+    // Discount/voucher brings bill down to 150k while assigned items sum to 300k (a=100k, b=200k)
+    const overflowResult = calculateItemizedSplit(150_000, ['a', 'b', 'c'], [
+      { name: 'Món 1', priceVnd: 100_000, assignedMemberIds: ['a'] },
+      { name: 'Món 2', priceVnd: 200_000, assignedMemberIds: ['b'] },
+    ]);
+    expect(overflowResult.overflowed).toBe(true);
+    expect(overflowResult.sharedPoolVnd).toBe(0);
+    expect(overflowResult.shares).toEqual([
+      { memberId: 'a', amountVnd: 50_000 },
+      { memberId: 'b', amountVnd: 100_000 },
+      { memberId: 'c', amountVnd: 0 },
+    ]);
+    expect(overflowResult.shares.reduce((s, x) => s + x.amountVnd, 0)).toBe(150_000);
   });
 });
