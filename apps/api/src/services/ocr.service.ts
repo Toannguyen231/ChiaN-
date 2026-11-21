@@ -6,12 +6,20 @@ export interface ScanReceiptParams {
   geminiApiKey?: string;
 }
 
+const VALID_CATEGORIES = new Set<ExpenseCategory>([
+  'FOOD',
+  'STAY',
+  'TRANSPORT',
+  'COFFEE',
+  'OTHER',
+]);
+
 export async function scanReceiptWithGemini({
   imageBase64,
   mimeType = 'image/jpeg',
   geminiApiKey,
 }: ScanReceiptParams): Promise<ReceiptScanResultDto> {
-  const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '').trim();
+  const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '').trim();
 
   // 1. If Gemini API Key is configured, use live Google Gemini 2.0 / 1.5 Flash Vision
   if (geminiApiKey?.trim()) {
@@ -40,6 +48,7 @@ Yêu cầu bắt buộc:
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(15_000),
           body: JSON.stringify({
             contents: [
               {
@@ -97,10 +106,15 @@ Yêu cầu bắt buộc:
               ? Math.round(parsed.totalVnd)
               : calculatedSum;
 
+          const detectedCategory: ExpenseCategory =
+            parsed.detectedCategory && VALID_CATEGORIES.has(parsed.detectedCategory)
+              ? parsed.detectedCategory
+              : 'FOOD';
+
           return {
             totalVnd,
             detectedMerchant: parsed.detectedMerchant?.trim() || null,
-            detectedCategory: parsed.detectedCategory || 'FOOD',
+            detectedCategory,
             date: parsed.date || null,
             items,
             notice: 'Được phân tích tự động bằng Google Gemini AI',

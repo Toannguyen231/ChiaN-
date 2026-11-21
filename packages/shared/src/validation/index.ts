@@ -187,7 +187,7 @@ export const createExpenseSchema = z.object({
   paidByMemberId: z.string().trim().min(1),
   expenseDate: z.string().datetime().optional(),
   note: z.string().trim().max(300).optional(),
-  receiptImageUrl: z.string().trim().max(500).nullable().optional(),
+  receiptImageUrl: z.string().trim().max(10_000_000).nullable().optional(),
   clientMutationId: z.string().trim().min(8).max(120).optional(),
   splits: z.array(expenseSplitEntrySchema).min(1, 'Cần ít nhất 1 người tham gia'),
 });
@@ -201,7 +201,7 @@ export const updateExpenseSchema = z
     paidByMemberId: z.string().trim().min(1).optional(),
     expenseDate: z.string().datetime().optional(),
     note: z.string().trim().max(300).nullable().optional(),
-    receiptImageUrl: z.string().trim().max(500).nullable().optional(),
+    receiptImageUrl: z.string().trim().max(10_000_000).nullable().optional(),
     splits: z.array(expenseSplitEntrySchema).min(1).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
@@ -265,7 +265,10 @@ export const changePhoneVerifySchema = z.object({
 });
 
 export const scanReceiptSchema = z.object({
-  imageBase64: z.string().min(10, 'Dữ liệu ảnh không hợp lệ'),
+  imageBase64: z
+    .string()
+    .min(10, 'Dữ liệu ảnh không hợp lệ')
+    .max(12_000_000, 'Kích thước ảnh vượt quá giới hạn cho phép'),
   mimeType: z.string().optional().default('image/jpeg'),
 });
 

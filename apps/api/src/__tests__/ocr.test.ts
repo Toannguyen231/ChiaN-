@@ -58,9 +58,10 @@ describe('ChiaNè AI OCR Receipt Scanning API', () => {
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
   });
 
-  it('successfully analyzes receipt and returns structured bill items and total', async () => {
+  it('successfully analyzes receipt and allows saving expense with base64 receiptImageUrl > 500 chars', async () => {
     const an = await createAuthedUser(app, otpProvider, '0912345678', 'An');
-    const dummyImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const dummyImageBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
     const res = await app.inject({
       method: 'POST',
@@ -76,5 +77,35 @@ describe('ChiaNè AI OCR Receipt Scanning API', () => {
     expect(Array.isArray(data.items)).toBe(true);
     expect(data.items.length).toBeGreaterThan(0);
     expect(typeof data.items[0].priceVnd).toBe('number');
+
+    // Create a group and save an expense with a large base64 receipt data URL (> 2000 chars)
+    const groupRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: an.authHeader,
+      payload: { name: 'Hội Ăn Tối', category: 'FOOD' },
+    });
+    expect(groupRes.statusCode).toBe(201);
+    const group = groupRes.json().group;
+
+    const largeDataUrl = `data:image/png;base64,${dummyImageBase64.repeat(30)}`;
+    expect(largeDataUrl.length).toBeGreaterThan(2000);
+
+    const expRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${group.id}/expenses`,
+      headers: an.authHeader,
+      payload: {
+        title: data.detectedMerchant ?? 'Hóa đơn AI',
+        amountVnd: data.totalVnd,
+        category: data.detectedCategory ?? 'FOOD',
+        splitMethod: 'EQUAL',
+        paidByMemberId: group.myMemberId,
+        receiptImageUrl: largeDataUrl,
+        splits: [{ memberId: group.myMemberId }],
+      },
+    });
+    expect(expRes.statusCode).toBe(201);
+    expect(expRes.json().expense.receiptImageUrl).toBe(largeDataUrl);
   });
 });

@@ -185,12 +185,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
       setScanningReceipt(true);
       try {
-        const ocrRes = await ocrApi.scanReceipt({
+        const scan = await ocrApi.scanReceipt({
           imageBase64: base64Data,
           mimeType,
         });
 
-        const scan = ocrRes.scan;
         if (scan.totalVnd > 0) {
           draft.patchDraft({ amountVnd: scan.totalVnd });
         }
@@ -264,7 +263,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const handleOpenNoteModal = () => {
     setNoteInput(draft.note);
-    setReceiptInput(draft.receiptImageUrl);
+    setReceiptInput(
+      draft.receiptImageUrl.startsWith('data:image/') ? '' : draft.receiptImageUrl
+    );
     setNoteModalOpen(true);
   };
 
@@ -781,10 +782,16 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                 label="Lưu ghi chú"
                 variant="primary"
                 onPress={() => {
+                  const trimmedReceipt = receiptInput.trim();
+                  const keepDataImage =
+                    !trimmedReceipt && draft.receiptImageUrl.startsWith('data:image/');
                   draft.patchDraft({
                     note: noteInput,
-                    receiptImageUrl: receiptInput,
+                    ...(keepDataImage ? {} : { receiptImageUrl: trimmedReceipt }),
                   });
+                  if (!keepDataImage) {
+                    setReceiptImageUri(trimmedReceipt);
+                  }
                   setNoteModalOpen(false);
                 }}
               />
