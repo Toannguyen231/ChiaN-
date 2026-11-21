@@ -11,6 +11,17 @@
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#173E32"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.chiane.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ChiaNè cần quyền truy cập máy ảnh để chụp và quét hóa đơn chi tiêu.",
+        "NSPhotoLibraryUsageDescription": "ChiaNè cần quyền truy cập thư viện ảnh để đính kèm hóa đơn chi tiêu."
       }
     },
     "web": {
@@ -26,7 +37,14 @@
           "resizeMode": "contain"
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ChiaNè cần quyền truy cập thư viện ảnh để đính kèm hóa đơn chi tiêu.",
+          "cameraPermission": "ChiaNè cần quyền truy cập máy ảnh để chụp và quét hóa đơn chi tiêu."
+        }
+      ]
     ]
   }
 }

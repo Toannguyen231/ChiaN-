@@ -242,6 +242,34 @@ export function SplitMethodScreen({ navigation, route }: Props) {
 
           {mode === 'EQUAL' ? (
             <>
+              <View style={styles.bulkActionRow}>
+                <Text style={styles.selectedCountText}>
+                  Đã chọn {selectedIds.length}/{members.length} người
+                </Text>
+                <View style={styles.bulkButtons}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setSelectedIds(members.map((m) => m.id))}
+                    hitSlop={6}
+                    style={styles.bulkBtn}
+                  >
+                    <Text style={styles.bulkBtnText}>Chọn tất cả</Text>
+                  </Pressable>
+                  <Text style={styles.bulkDot}>·</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      const fallback = draft.paidByMemberId || members[0]?.id;
+                      setSelectedIds(fallback ? [fallback] : []);
+                    }}
+                    hitSlop={6}
+                    style={styles.bulkBtn}
+                  >
+                    <Text style={styles.bulkBtnText}>Bỏ chọn</Text>
+                  </Pressable>
+                </View>
+              </View>
+
               <View style={styles.listCard}>
                 {members.map((member, index) => {
                   const checked = selectedIds.includes(member.id);
@@ -478,6 +506,37 @@ const styles = StyleSheet.create({
   },
   modeChip: {
     flex: 1,
+  },
+  bulkActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: -4,
+  },
+  selectedCountText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.muted,
+  },
+  bulkButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bulkBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  bulkBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
+  },
+  bulkDot: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.muted,
   },
   listCard: {
     backgroundColor: colors.white,

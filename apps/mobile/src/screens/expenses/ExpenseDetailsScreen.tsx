@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { formatVnd, type ExpenseCategory } from '@chiane/shared';
@@ -57,6 +57,7 @@ export function ExpenseDetailsScreen({ navigation, route }: Props) {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [receiptViewerVisible, setReceiptViewerVisible] = useState(false);
 
   const loadExpense = useCallback(async () => {
     setLoading(true);
@@ -175,9 +176,28 @@ export function ExpenseDetailsScreen({ navigation, route }: Props) {
               </View>
             ) : null}
             {expense.receiptImageUrl ? (
-              <Text style={styles.receiptLink}>
-                Hóa đơn đính kèm: {expense.receiptImageUrl}
-              </Text>
+              <View style={styles.receiptContainer}>
+                <Text style={styles.receiptHeading}>🧾 Hóa đơn đính kèm</Text>
+                {expense.receiptImageUrl.startsWith('http') ||
+                expense.receiptImageUrl.startsWith('data:image') ||
+                expense.receiptImageUrl.startsWith('file:') ? (
+                  <Pressable
+                    onPress={() => setReceiptViewerVisible(true)}
+                    style={styles.receiptImageWrap}
+                  >
+                    <Image
+                      source={{ uri: expense.receiptImageUrl }}
+                      style={styles.receiptThumbnail}
+                      resizeMode="cover"
+                    />
+                    <Text style={styles.receiptTapHint}>Bấm vào để xem ảnh lớn</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.receiptLink}>
+                    {expense.receiptImageUrl}
+                  </Text>
+                )}
+              </View>
             ) : null}
           </View>
 
@@ -212,6 +232,34 @@ export function ExpenseDetailsScreen({ navigation, route }: Props) {
           </View>
         </View>
       ) : null}
+
+      <Modal
+        visible={receiptViewerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReceiptViewerVisible(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setReceiptViewerVisible(false)}
+        >
+          <View style={styles.viewerCard}>
+            {expense?.receiptImageUrl ? (
+              <Image
+                source={{ uri: expense.receiptImageUrl }}
+                style={styles.viewerImage}
+                resizeMode="contain"
+              />
+            ) : null}
+            <ChiaNeButton
+              label="Đóng ảnh"
+              variant="quiet"
+              onPress={() => setReceiptViewerVisible(false)}
+              style={styles.viewerCloseBtn}
+            />
+          </View>
+        </Pressable>
+      </Modal>
 
       <ConfirmDialog
         visible={deleteConfirm}
@@ -282,11 +330,62 @@ const styles = StyleSheet.create({
     color: colors.ink,
     textAlign: 'center',
   },
+  receiptContainer: {
+    width: '100%',
+    marginTop: 8,
+    alignItems: 'center',
+    gap: 6,
+  },
+  receiptHeading: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.ink,
+  },
+  receiptImageWrap: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 4,
+  },
+  receiptThumbnail: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    backgroundColor: colors.paper,
+  },
+  receiptTapHint: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.purple,
+  },
   receiptLink: {
     fontFamily: fonts.medium,
     fontSize: 11,
     color: colors.purple,
     marginTop: 2,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  viewerCard: {
+    width: '100%',
+    maxHeight: '90%',
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    padding: 16,
+    alignItems: 'center',
+    gap: 12,
+  },
+  viewerImage: {
+    width: '100%',
+    height: 380,
+    borderRadius: 8,
+  },
+  viewerCloseBtn: {
+    width: '100%',
   },
   sectionTitle: {
     fontFamily: fonts.semiBold,

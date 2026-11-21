@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -9,11 +10,13 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 import {
   formatVnd,
   parseVndInput,
   validateExactSplit,
   type ExpenseCategory,
+  type ReceiptItemDto,
 } from '@chiane/shared';
 import IconCheck from '../../../assets/figma/icon-check.svg';
 import IconChevron from '../../../assets/figma/icon-chevron.svg';
@@ -29,6 +32,7 @@ import {
 import type { AppStackParamList } from '../../navigation/types';
 import { ApiClientError } from '../../services/apiClient';
 import { expensesApi } from '../../services/expensesApi';
+import { ocrApi } from '../../services/ocrApi';
 import { useExpenseDraftStore } from '../../store/expenseDraftStore';
 import { useGroupsStore } from '../../store/groupsStore';
 import { useOfflineQueueStore } from '../../store/offlineQueueStore';
@@ -94,6 +98,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [noteInput, setNoteInput] = useState('');
   const [receiptInput, setReceiptInput] = useState('');
 
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
+  const [scanningReceipt, setScanningReceipt] = useState(false);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [scannedItems, setScannedItems] = useState<ReceiptItemDto[]>([]);
+  const [receiptImageUri, setReceiptImageUri] = useState<string>(draft.receiptImageUrl || '');
+
   const initialize = useCallback(async () => {
     setLoadError(null);
     try {
@@ -104,8 +114,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       if (expenseId) {
         const res = await expensesApi.getExpense(expenseId);
         draft.initFromExpense(res.expense, groupDetail.members);
+        setReceiptImageUri(res.expense.receiptImageUrl ?? '');
       } else if (draft.groupId !== groupId || draft.expenseId !== null) {
         draft.initNew(groupId, groupDetail.members, groupDetail.myMemberId);
+        setReceiptImageUri('');
+        setScannedItems([]);
       }
     } catch (err) {
       setLoadError(
@@ -118,6 +131,94 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expenseId, fetchGroupDetail, groupId]);
+
+  const handlePickImage = async (fromCamera: boolean) => {
+    setPhotoPickerOpen(false);
+    setScanNotice(null);
+
+    try {
+      if (fromCamera) {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          setScanNotice('Cần cấp quyền máy ảnh để chụp hóa đơn.');
+          return;
+        }
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          setScanNotice('Cần cấp quyền truy cập ảnh để tải hóa đơn.');
+          return;
+        }
+      }
+
+      const pickerFn = fromCamera
+        ? ImagePicker.launchCameraAsync
+        : ImagePicker.launchImageLibraryAsync;
+
+      const result = await pickerFn({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.65,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType || 'image/jpeg';
+      const imageUri = asset.uri;
+      const base64Data = asset.base64;
+
+      setReceiptImageUri(imageUri);
+      if (base64Data) {
+        draft.patchDraft({ receiptImageUrl: `data:${mimeType};base64,${base64Data}` });
+      } else {
+        draft.patchDraft({ receiptImageUrl: imageUri });
+      }
+
+      if (!base64Data) {
+        setScanNotice('Đã đính kèm ảnh. Không thể đọc base64 để phân tích AI.');
+        return;
+      }
+
+      setScanningReceipt(true);
+      try {
+        const ocrRes = await ocrApi.scanReceipt({
+          imageBase64: base64Data,
+          mimeType,
+        });
+
+        const scan = ocrRes.scan;
+        if (scan.totalVnd > 0) {
+          draft.patchDraft({ amountVnd: scan.totalVnd });
+        }
+        if (scan.detectedMerchant && !draft.title.trim()) {
+          draft.patchDraft({ title: scan.detectedMerchant });
+        }
+        if (scan.detectedCategory) {
+          draft.patchDraft({ category: scan.detectedCategory });
+        }
+        if (scan.items && scan.items.length > 0) {
+          setScannedItems(scan.items);
+        }
+        if (scan.notice) {
+          setScanNotice(scan.notice);
+        }
+      } catch (ocrErr) {
+        setScanNotice(
+          ocrErr instanceof ApiClientError
+            ? ocrErr.message
+            : 'AI chưa đọc được hóa đơn, bạn vẫn có thể nhập tay số tiền.'
+        );
+      } finally {
+        setScanningReceipt(false);
+      }
+    } catch {
+      setScanNotice('Lỗi khi mở máy ảnh hoặc thư viện ảnh.');
+    }
+  };
 
   useEffect(() => {
     void initialize();
@@ -326,6 +427,93 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
+          {/* AI Receipt Scanning Banner */}
+          <View style={styles.ocrCard}>
+            <View style={styles.ocrHeaderRow}>
+              <View style={styles.ocrTitleCol}>
+                <Text style={styles.ocrBadge}>✨ AI GEMINI VISION</Text>
+                <Text style={styles.ocrTitle}>Quét hóa đơn tự động</Text>
+                <Text style={styles.ocrSubtitle}>
+                  Tự động đọc tổng tiền, phân loại & nhận diện món
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setPhotoPickerOpen(true)}
+                disabled={scanningReceipt}
+                style={({ pressed }) => [
+                  styles.ocrScanBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.ocrScanBtnText}>
+                  {scanningReceipt
+                    ? 'Đang quét...'
+                    : receiptImageUri
+                      ? 'Đổi ảnh'
+                      : 'Quét ảnh'}
+                </Text>
+              </Pressable>
+            </View>
+
+            {scanningReceipt ? (
+              <View style={styles.scanningBox}>
+                <Text style={styles.scanningText}>
+                  ⏳ AI đang đọc các món và tính tổng tiền hóa đơn...
+                </Text>
+              </View>
+            ) : null}
+
+            {scanNotice ? (
+              <View style={styles.ocrNoticeBox}>
+                <Text style={styles.ocrNoticeText}>{scanNotice}</Text>
+              </View>
+            ) : null}
+
+            {receiptImageUri ? (
+              <View style={styles.receiptPreviewRow}>
+                <Image
+                  source={{ uri: receiptImageUri }}
+                  style={styles.receiptPreviewThumb}
+                  resizeMode="cover"
+                />
+                <View style={styles.receiptPreviewMeta}>
+                  <Text style={styles.receiptAttachedText}>Đã đính kèm ảnh hóa đơn</Text>
+                  <Pressable
+                    onPress={() => {
+                      setReceiptImageUri('');
+                      draft.patchDraft({ receiptImageUrl: '' });
+                      setScannedItems([]);
+                    }}
+                  >
+                    <Text style={styles.removeReceiptText}>Gỡ ảnh</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            {scannedItems.length > 0 ? (
+              <View style={styles.scannedItemsWrap}>
+                <Text style={styles.scannedItemsHeading}>
+                  Món nhận diện ({scannedItems.length} món):
+                </Text>
+                <View style={styles.scannedItemsList}>
+                  {scannedItems.map((item, idx) => (
+                    <View key={`${item.name}_${idx}`} style={styles.scannedItemRow}>
+                      <Text style={styles.scannedItemName} numberOfLines={1}>
+                        {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}
+                        {item.name}
+                      </Text>
+                      <Text style={styles.scannedItemPrice}>
+                        {formatVnd(item.priceVnd)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </View>
+
           <Text style={styles.amountEyebrow}>SỐ TIỀN</Text>
           <View style={styles.amountRow}>
             <TextInput
@@ -433,7 +621,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             <Text style={styles.noteBarText} numberOfLines={1}>
               {draft.note.trim()
                 ? `Ghi chú: ${draft.note.trim()}`
-                : 'Thêm ảnh hóa đơn hoặc ghi chú'}
+                : receiptImageUri
+                  ? '🧾 Đã đính kèm ảnh hóa đơn · Bấm để sửa'
+                  : 'Thêm ảnh hóa đơn hoặc ghi chú'}
             </Text>
           </Pressable>
 
@@ -576,6 +766,16 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               autoCapitalize="none"
               maxLength={500}
             />
+            <View style={styles.modalPhotoRow}>
+              <ChiaNeButton
+                label={receiptImageUri ? '📷 Đổi ảnh chụp hóa đơn' : '📷 Chụp hoặc tải ảnh hóa đơn'}
+                variant="quiet"
+                onPress={() => {
+                  setNoteModalOpen(false);
+                  setPhotoPickerOpen(true);
+                }}
+              />
+            </View>
             <View style={styles.modalActions}>
               <ChiaNeButton
                 label="Lưu ghi chú"
@@ -592,6 +792,43 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                 label="Đóng"
                 variant="quiet"
                 onPress={() => setNoteModalOpen(false)}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Photo Picker Modal */}
+      <Modal
+        visible={photoPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhotoPickerOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setPhotoPickerOpen(false)}
+        >
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Quét hóa đơn AI</Text>
+            <Text style={styles.modalSubtitle}>
+              Chụp ảnh hóa đơn hoặc chọn ảnh từ máy, AI sẽ tự đọc tổng tiền và gợi ý các món.
+            </Text>
+            <View style={styles.photoPickerOptions}>
+              <ChiaNeButton
+                label="📷 Chụp ảnh mới"
+                variant="primary"
+                onPress={() => void handlePickImage(true)}
+              />
+              <ChiaNeButton
+                label="🖼️ Chọn ảnh từ máy"
+                variant="quiet"
+                onPress={() => void handlePickImage(false)}
+              />
+              <ChiaNeButton
+                label="Hủy"
+                variant="quiet"
+                onPress={() => setPhotoPickerOpen(false)}
               />
             </View>
           </Pressable>
@@ -616,6 +853,137 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 11,
     color: colors.purple,
+  },
+  ocrCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 16,
+    gap: 12,
+  },
+  ocrHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  ocrTitleCol: {
+    flex: 1,
+    gap: 2,
+  },
+  ocrBadge: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    color: colors.purple,
+    letterSpacing: 0.5,
+  },
+  ocrTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  ocrSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.muted,
+    lineHeight: 15,
+  },
+  ocrScanBtn: {
+    backgroundColor: colors.forest,
+    borderRadius: radii.button,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ocrScanBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.white,
+  },
+  scanningBox: {
+    backgroundColor: colors.lavender,
+    borderRadius: 8,
+    padding: 10,
+  },
+  scanningText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.purple,
+    textAlign: 'center',
+  },
+  ocrNoticeBox: {
+    backgroundColor: colors.peach,
+    borderRadius: 8,
+    padding: 10,
+  },
+  ocrNoticeText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.coral,
+  },
+  receiptPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.paper,
+    padding: 8,
+    borderRadius: 10,
+  },
+  receiptPreviewThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: colors.line,
+  },
+  receiptPreviewMeta: {
+    flex: 1,
+    gap: 4,
+  },
+  receiptAttachedText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.ink,
+  },
+  removeReceiptText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.coral,
+  },
+  scannedItemsWrap: {
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: 10,
+  },
+  scannedItemsHeading: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.muted,
+  },
+  scannedItemsList: {
+    backgroundColor: colors.paper,
+    borderRadius: 8,
+    padding: 10,
+    gap: 6,
+  },
+  scannedItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  scannedItemName: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.ink,
+    flex: 1,
+    marginRight: 8,
+  },
+  scannedItemPrice: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
   },
   amountEyebrow: {
     fontFamily: fonts.semiBold,
@@ -761,6 +1129,19 @@ const styles = StyleSheet.create({
   quickDatesRow: {
     flexDirection: 'row',
     gap: 10,
+  },
+  modalSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.muted,
+  },
+  modalPhotoRow: {
+    marginVertical: 4,
+  },
+  photoPickerOptions: {
+    gap: 10,
+    marginTop: 6,
   },
   modalActions: {
     gap: 10,

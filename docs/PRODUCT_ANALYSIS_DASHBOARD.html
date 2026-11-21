@@ -1,0 +1,551 @@
+<!-- Copy of ChiaNe Product Analysis Dashboard -->
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChiaNè — Báo Cáo Phân Tích & Kế Hoạch Cải Thiện Sản Phẩm</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --forest: #173E32;
+      --lime: #D0F477;
+      --ink: #20392F;
+      --muted: #66766D;
+      --paper: #F7F8F2;
+      --white: #FFFFFF;
+      --line: #E3E8DE;
+      --lavender: #EAE5FC;
+      --purple: #6E55A5;
+      --coral: #AD4C38;
+      --peach: #FCE8DD;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--paper);
+      color: var(--ink);
+    }
+    .badge-forest { background: var(--forest); color: var(--lime); }
+    .badge-lime { background: var(--lime); color: var(--forest); }
+    .badge-lavender { background: var(--lavender); color: var(--purple); }
+    .badge-peach { background: var(--peach); color: var(--coral); }
+    .tab-active {
+      background: var(--forest) !important;
+      color: var(--lime) !important;
+      font-weight: 600;
+    }
+    .card-shadow {
+      box-shadow: 0 4px 20px rgba(23, 62, 50, 0.06);
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- HERO HEADER -->
+    <header class="bg-[#173E32] rounded-3xl p-6 md:p-8 text-white relative overflow-hidden card-shadow">
+      <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#204E40] text-[#D0F477] text-xs font-semibold uppercase tracking-wider mb-3">
+            <span class="w-2 h-2 rounded-full bg-[#D0F477] animate-pulse"></span>
+            Báo Cáo Đánh Giá Toàn Diện & Kế Hoạch Nâng Cấp
+          </div>
+          <h1 class="text-3xl md:text-4xl font-extrabold text-[#D0F477] tracking-tight">ChiaNè — Product Review & Roadmap</h1>
+          <p class="text-emerald-100/80 text-sm md:text-base mt-2 max-w-2xl">
+            Phân tích hiện trạng, đánh giá năng lực cạnh tranh và vạch rõ toàn bộ các điểm cần cải thiện để đưa sản phẩm từ MVP hoàn chỉnh lên cấp độ thương mại hóa thực tế.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3 bg-[#204E40]/90 backdrop-blur p-4 rounded-2xl border border-emerald-700/50">
+          <div class="text-center px-3 border-r border-emerald-700/60">
+            <div class="text-3xl font-black text-[#D0F477]">92<span class="text-sm font-normal text-white">/100</span></div>
+            <div class="text-[11px] text-emerald-200 uppercase font-medium mt-0.5">Mức Sẵn Sàng</div>
+          </div>
+          <div class="text-center px-3">
+            <div class="text-2xl font-bold text-white">30<span class="text-sm text-[#D0F477]">/30</span></div>
+            <div class="text-[11px] text-emerald-200 uppercase font-medium mt-0.5">Automated Tests Pass</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Ambient background circles -->
+      <div class="absolute -right-12 -top-12 w-64 h-64 bg-[#D0F477]/10 rounded-full blur-2xl pointer-events-none"></div>
+      <div class="absolute right-40 -bottom-20 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+    </header>
+
+    <!-- NAVIGATION TABS -->
+    <div class="flex items-center gap-2 overflow-x-auto pb-1 border-b border-[#E3E8DE]">
+      <button onclick="switchTab('overview')" id="tab-overview" class="px-5 py-2.5 rounded-xl text-sm font-medium transition-all tab-active whitespace-nowrap">
+        1. Tổng Quan Hiện Trạng
+      </button>
+      <button onclick="switchTab('improvements')" id="tab-improvements" class="px-5 py-2.5 rounded-xl text-sm font-medium text-[#66766D] hover:text-[#173E32] transition-all whitespace-nowrap">
+        2. Các Điểm Cần Cải Thiện (12 Hạng Mục)
+      </button>
+      <button onclick="switchTab('competition')" id="tab-competition" class="px-5 py-2.5 rounded-xl text-sm font-medium text-[#66766D] hover:text-[#173E32] transition-all whitespace-nowrap">
+        3. Ma Trận Cạnh Tranh
+      </button>
+      <button onclick="switchTab('roadmap')" id="tab-roadmap" class="px-5 py-2.5 rounded-xl text-sm font-medium text-[#66766D] hover:text-[#173E32] transition-all whitespace-nowrap">
+        4. Kế Hoạch Hành Động (P0 - P2)
+      </button>
+    </div>
+
+    <!-- TAB 1: TỔNG QUAN HIỆN TRẠNG -->
+    <section id="content-overview" class="space-y-6">
+      <!-- 4 Quick Stats -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-white p-5 rounded-2xl border border-[#E3E8DE] card-shadow">
+          <div class="text-xs uppercase text-[#66766D] font-bold">Quy Trình Hoàn Thiện</div>
+          <div class="text-2xl font-black text-[#173E32] mt-1">6 / 6 Modules</div>
+          <div class="text-xs text-emerald-700 font-semibold mt-1">Phases 0 → 7 Đã Xong 100%</div>
+        </div>
+        <div class="bg-white p-5 rounded-2xl border border-[#E3E8DE] card-shadow">
+          <div class="text-xs uppercase text-[#66766D] font-bold">Màn Hình Mobile</div>
+          <div class="text-2xl font-black text-[#173E32] mt-1">29 Screens</div>
+          <div class="text-xs text-[#6E55A5] font-semibold mt-1">Chuẩn Design System Figma</div>
+        </div>
+        <div class="bg-white p-5 rounded-2xl border border-[#E3E8DE] card-shadow">
+          <div class="text-xs uppercase text-[#66766D] font-bold">Đóng Gói Ứng Dụng</div>
+          <div class="text-2xl font-black text-[#173E32] mt-1">1154 Modules</div>
+          <div class="text-xs text-emerald-700 font-semibold mt-1">iOS & Web Clean Bundled</div>
+        </div>
+        <div class="bg-white p-5 rounded-2xl border border-[#E3E8DE] card-shadow">
+          <div class="text-xs uppercase text-[#66766D] font-bold">Bảo Đảm Hạ Tầng</div>
+          <div class="text-2xl font-black text-[#173E32] mt-1">20 / 20</div>
+          <div class="text-xs text-emerald-700 font-semibold mt-1">Expo Doctor Checks Pass</div>
+        </div>
+      </div>
+
+      <!-- Feature Audit Matrix -->
+      <div class="bg-white rounded-3xl p-6 border border-[#E3E8DE] card-shadow">
+        <h2 class="text-xl font-bold text-[#173E32] mb-4 flex items-center justify-between">
+          <span>Đánh Giá Trạng Thái Các Module Cốt Lõi</span>
+          <span class="text-xs font-normal text-[#66766D]">Tất cả đều đã chạy thực tế trên Expo Go</span>
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          
+          <div class="p-4 rounded-2xl bg-[#F7F8F2] border border-[#E3E8DE] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sm text-[#173E32]">M01: Xác Thực OTP & Profile</span>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Hoàn Hảo</span>
+            </div>
+            <p class="text-xs text-[#66766D]">SĐT Việt Nam + OTP 6 số, bảo mật SHA-256 cooldown 30s, token xoay vòng tự động.</p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-[#F7F8F2] border border-[#E3E8DE] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sm text-[#173E32]">M02: Nhóm & Chế Độ Khách</span>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Đột Phá</span>
+            </div>
+            <p class="text-xs text-[#66766D]">Guest Mode vào nhóm xem & chia ngay không cần tài khoản, tự claim khi đăng ký SĐT.</p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-[#F7F8F2] border border-[#E3E8DE] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sm text-[#173E32]">M03: Khoản Chi & Chia Tiền</span>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Rất Tốt</span>
+            </div>
+            <p class="text-xs text-[#66766D]">Chia đều làm tròn bù +1₫, chia theo % hoặc gõ số tiền tùy chỉnh chặn sai tổng lập tức.</p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-[#F7F8F2] border border-[#E3E8DE] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sm text-[#173E32]">M04: Công Nợ & VietQR</span>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Đột Phá</span>
+            </div>
+            <p class="text-xs text-[#66766D]">Tối ưu số lượt chuyển tối thiểu, VietQR chuẩn EMVCo CRC16, cơ chế Báo → Xác nhận 2 bước.</p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-[#F7F8F2] border border-[#E3E8DE] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sm text-[#173E32]">M05: Hoạt Động & Nhắc Nhẹ</span>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Tinh Tế</span>
+            </div>
+            <p class="text-xs text-[#66766D]">Dòng hoạt động phân loại chi tiết, nút "Nhắc nhẹ bạn bè" khóa rate-limit 24 giờ chống spam.</p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-[#F7F8F2] border border-[#E3E8DE] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sm text-[#173E32]">M06: Offline-First & Sync</span>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Bền Vững</span>
+            </div>
+            <p class="text-xs text-[#66766D]">Lưu hàng đợi khi mất mạng ở vùng du lịch, tự động đồng bộ khi có sóng trở lại không trùng lặp.</p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: CÁC ĐIỂM CẦN CẢI THIỆN -->
+    <section id="content-improvements" class="hidden space-y-6">
+      
+      <!-- Filter Bar -->
+      <div class="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-[#E3E8DE]">
+        <span class="text-xs font-bold text-[#66766D] px-2">Lọc theo:</span>
+        <button onclick="filterItems('all')" class="filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#173E32] text-white">Tất Cả (12)</button>
+        <button onclick="filterItems('p0')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-[#F7F8F2] text-[#66766D] hover:bg-emerald-50">Cấp Thiết P0 (4)</button>
+        <button onclick="filterItems('p1')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-[#F7F8F2] text-[#66766D] hover:bg-emerald-50">Quan Trọng P1 (5)</button>
+        <button onclick="filterItems('p2')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-[#F7F8F2] text-[#66766D] hover:bg-emerald-50">Mở Rộng P2 (3)</button>
+      </div>
+
+      <!-- Improvement Cards Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="improvement-grid">
+
+        <!-- Item 1 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p0">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800 uppercase">P0 · Trải Nghiệm</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Nút Chọn Nhanh Người Tham Gia ("Chọn Tất Cả")</h3>
+            </div>
+            <span class="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded font-medium">Tác động: Lớn</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Trong nhóm 8–10 người, khi chia một bữa ăn có 7 người tham gia, người dùng phải tích chọn từng checkbox một.</p>
+            <p><strong>Cải thiện:</strong> Bổ sung 2 nút bấm nhanh <em>"Chọn tất cả"</em> và <em>"Bỏ chọn tất cả"</em> ngay đầu danh sách chia tiền. Giảm 80% thao tác tay.</p>
+          </div>
+        </div>
+
+        <!-- Item 2 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p0">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800 uppercase">P0 · Lan Truyền</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Mẫu Tin Nhắn Mời Nhóm Chuẩn Zalo / Messenger</h3>
+            </div>
+            <span class="text-xs text-emerald-700 bg-emerald-50 px-2 py-1 rounded font-medium">Tác động: Rất Lớn</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Khi bấm Chia sẻ chỉ gửi link trơn <code>chiane.app/moi/...</code>.</p>
+            <p><strong>Cải thiện:</strong> Định dạng mẫu tin nhắn thân thiện: <em>"Huy mời bạn vào nhóm 'Đà Lạt 2026' trên ChiaNè để chia tiền nha (bấm xem liền không cần lập nick): chiane.app/moi/dalat-26"</em>.</p>
+          </div>
+        </div>
+
+        <!-- Item 3 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p0">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800 uppercase">P0 · Hạ Tầng</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Triển Khai Backend Lên Cloud 24/7 & Chuyển Postgres</h3>
+            </div>
+            <span class="text-xs text-red-700 bg-red-50 px-2 py-1 rounded font-medium">Bắt buộc cho Product</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> API đang chạy cục bộ trên máy tính dev (Fastify + SQLite <code>dev.db</code> qua Wi-Fi LAN).</p>
+            <p><strong>Cải thiện:</strong> Chuyển sang PostgreSQL (Neon / Supabase) và deploy server lên Render/Fly.io để điện thoại dùng 4G ngoài đường gọi được API bất cứ lúc nào.</p>
+          </div>
+        </div>
+
+        <!-- Item 4 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p0">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800 uppercase">P0 · Đóng Gói</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Xuất File Cài Đặt (.APK cho Android / TestFlight cho iOS)</h3>
+            </div>
+            <span class="text-xs text-emerald-700 bg-emerald-50 px-2 py-1 rounded font-medium">Tác động: Trực quan</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Phải mở qua ứng dụng trung gian Expo Go.</p>
+            <p><strong>Cải thiện:</strong> Dùng EAS Build xuất file <code>.apk</code> cài trực tiếp vào điện thoại Android và gửi link TestFlight cho iOS bạn bè test độc lập.</p>
+          </div>
+        </div>
+
+        <!-- Item 5 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p1">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 uppercase">P1 · Tính Năng</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Đính Kèm Ảnh Chụp Hóa Đơn (Bill / Receipt)</h3>
+            </div>
+            <span class="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded font-medium">Minh bạch</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Chỉ có trường ghi chú văn bản, chưa chọn ảnh từ camera/thư viện.</p>
+            <p><strong>Cải thiện:</strong> Tích hợp <code>expo-image-picker</code> cho phép chụp/đính kèm ảnh hóa đơn để các thành viên dễ đối chiếu khi có thắc mắc.</p>
+          </div>
+        </div>
+
+        <!-- Item 6 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p1">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 uppercase">P1 · Thanh Toán</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Gợi Ý Ngân Hàng Theo Tên Viết Tắt (VCB, TCB, MB, ACB)</h3>
+            </div>
+            <span class="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded font-medium">Tiện lợi</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Tìm kiếm ngân hàng dựa theo tên đầy đủ.</p>
+            <p><strong>Cải thiện:</strong> Hỗ trợ gõ từ viết tắt quen thuộc như "VCB" -> Vietcombank, "TCB" -> Techcombank, "MB" -> Quân đội giúp chọn ngân hàng nhận tiền chỉ trong 2 giây.</p>
+          </div>
+        </div>
+
+        <!-- Item 7 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p1">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 uppercase">P1 · Thông Báo</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Banner Nổi Bật Ở Trang Chủ Khi Có Người Chuyển Tiền</h3>
+            </div>
+            <span class="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded font-medium">Tránh sót</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Khi An báo chuyển tiền cho Linh, trên máy Linh chỉ hiện chấm đỏ ở biểu tượng chuông Hoạt động.</p>
+            <p><strong>Cải thiện:</strong> Hiện thẻ cảnh báo ngay trên Trang chủ: <em>"An vừa báo chuyển 333.333 ₫ cho bạn · Bấm để kiểm tra & xác nhận"</em>.</p>
+          </div>
+        </div>
+
+        <!-- Item 8 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p1">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 uppercase">P1 · Thông Báo</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Push Notification Khi Không Mở Ứng Dụng</h3>
+            </div>
+            <span class="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded font-medium">Tương tác</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Người dùng chỉ thấy cập nhật khi mở app.</p>
+            <p><strong>Cải thiện:</strong> Tích hợp Expo Push Notification: Bắn thông báo khi có người thêm khoản chi mới hoặc có lời nhắc nhẹ từ bạn bè.</p>
+          </div>
+        </div>
+
+        <!-- Item 9 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p1">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 uppercase">P1 · Xác Thực</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">SMS OTP Thật Qua Cổng Zalo ZNS / eSMS</h3>
+            </div>
+            <span class="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded font-medium">Thực tế</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Mã OTP đang hiển thị ở console và hint gợi ý trên màn hình dev.</p>
+            <p><strong>Cải thiện:</strong> Kết nối dịch vụ SMS Gateway Việt Nam để gửi tin nhắn OTP thật tới điện thoại người dùng.</p>
+          </div>
+        </div>
+
+        <!-- Item 10 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p2">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 uppercase">P2 · AI Đột Phá</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">AI Quét Hóa Đơn Tự Động (Gemini Vision OCR)</h3>
+            </div>
+            <span class="text-xs text-purple-700 bg-purple-50 px-2 py-1 rounded font-medium">Độc quyền</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Người dùng nhập tay số tiền hóa đơn.</p>
+            <p><strong>Cải thiện:</strong> Chụp ảnh bill -> AI tự nhận dạng tổng tiền, thuế VAT và từng món ăn, cho phép "khoanh món ai nấy trả".</p>
+          </div>
+        </div>
+
+        <!-- Item 11 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p2">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 uppercase">P2 · Báo Cáo</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Xuất Báo Cáo Sao Kê Excel (.xlsx) & Ảnh Tổng Kết</h3>
+            </div>
+            <span class="text-xs text-purple-700 bg-purple-50 px-2 py-1 rounded font-medium">Chuyên nghiệp</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Dữ liệu chỉ xem được trên app.</p>
+            <p><strong>Cải thiện:</strong> Nút bấm 1-chạm xuất bảng tính Excel chi tiết chuyến đi hoặc tạo ảnh tổng kết đẹp mắt để gửi vào nhóm chat.</p>
+          </div>
+        </div>
+
+        <!-- Item 12 -->
+        <div class="improvement-card p-5 rounded-2xl bg-white border border-[#E3E8DE] card-shadow space-y-3" data-priority="p2">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 uppercase">P2 · Mở Rộng</span>
+              <h3 class="font-bold text-base text-[#173E32] mt-1">Tính Năng Đóng Quỹ Chung Đầu Chuyến Đi (Group Pot)</h3>
+            </div>
+            <span class="text-xs text-purple-700 bg-purple-50 px-2 py-1 rounded font-medium">Thực tế VN</span>
+          </div>
+          <div class="text-xs text-[#66766D] space-y-1">
+            <p><strong>Hiện tại:</strong> Mô hình chia tiền sau (ai trả người đó ghi vào).</p>
+            <p><strong>Cải thiện:</strong> Thêm mô hình đóng quỹ trước (mỗi người nộp 500k vào quỹ, các khoản chi trừ dần vào quỹ chung).</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- TAB 3: MA TRẬN CẠNH TRANH -->
+    <section id="content-competition" class="hidden space-y-6">
+      <div class="bg-white rounded-3xl p-6 border border-[#E3E8DE] card-shadow overflow-x-auto">
+        <h2 class="text-xl font-bold text-[#173E32] mb-2">So Sánh Năng Lực Trực Diện Trên Thị Trường</h2>
+        <p class="text-xs text-[#66766D] mb-6">ChiaNè tập trung khắc phục những nhược điểm lớn nhất của các giải pháp hiện hữu tại Việt Nam.</p>
+        
+        <table class="w-full text-left text-sm border-collapse">
+          <thead>
+            <tr class="border-b-2 border-[#173E32] text-xs uppercase text-[#173E32]">
+              <th class="py-3 px-4 font-extrabold">Tính Năng / Trải Nghiệm</th>
+              <th class="py-3 px-4 font-extrabold bg-[#D0F477]/30 text-[#173E32] rounded-t-xl">ChiaNè (App Của Bạn)</th>
+              <th class="py-3 px-4 font-bold text-[#66766D]">Splitwise (Quốc tế)</th>
+              <th class="py-3 px-4 font-bold text-[#66766D]">Ví MoMo / ZaloPay</th>
+              <th class="py-3 px-4 font-bold text-[#66766D]">Excel / Zalo Note</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#E3E8DE] text-xs md:text-sm">
+            <tr>
+              <td class="py-3.5 px-4 font-semibold text-[#173E32]">Rào cản tham gia (Onboarding)</td>
+              <td class="py-3.5 px-4 bg-[#D0F477]/10 font-bold text-[#173E32]">Cực Thấp (Guest Mode)</td>
+              <td class="py-3.5 px-4 text-red-600">Rất Cao (Bắt buộc tạo nick)</td>
+              <td class="py-3.5 px-4 text-red-600">Rất Cao (Cần cùng ví)</td>
+              <td class="py-3.5 px-4 text-emerald-700">Thấp (Chỉ cần link)</td>
+            </tr>
+            <tr>
+              <td class="py-3.5 px-4 font-semibold text-[#173E32]">Thanh toán VietQR liên ngân hàng</td>
+              <td class="py-3.5 px-4 bg-[#D0F477]/10 font-bold text-[#173E32]">Tự động (EMVCo chuẩn)</td>
+              <td class="py-3.5 px-4 text-red-600">Không có</td>
+              <td class="py-3.5 px-4 text-amber-700">Chỉ trong ví</td>
+              <td class="py-3.5 px-4 text-red-600">Thủ công, dễ gõ nhầm</td>
+            </tr>
+            <tr>
+              <td class="py-3.5 px-4 font-semibold text-[#173E32]">Làm tròn tiền VND (+1₫ bù trừ)</td>
+              <td class="py-3.5 px-4 bg-[#D0F477]/10 font-bold text-[#173E32]">Chính xác từng đồng</td>
+              <td class="py-3.5 px-4 text-amber-700">Lẻ số thập phân</td>
+              <td class="py-3.5 px-4 text-emerald-700">Tự động</td>
+              <td class="py-3.5 px-4 text-amber-700">Phải tự viết hàm ROUND</td>
+            </tr>
+            <tr>
+              <td class="py-3.5 px-4 font-semibold text-[#173E32]">Tối ưu số lượt chuyển tiền</td>
+              <td class="py-3.5 px-4 bg-[#D0F477]/10 font-bold text-[#173E32]">Có (Tối thiểu giao dịch)</td>
+              <td class="py-3.5 px-4 text-amber-700">Có (Nhưng hạn chế bản Free)</td>
+              <td class="py-3.5 px-4 text-red-600">Không có cấn trừ nhóm</td>
+              <td class="py-3.5 px-4 text-red-600">Tính toán thủ công rất đau đầu</td>
+            </tr>
+            <tr>
+              <td class="py-3.5 px-4 font-semibold text-[#173E32]">Tâm lý đòi nợ bạn bè</td>
+              <td class="py-3.5 px-4 bg-[#D0F477]/10 font-bold text-[#173E32]">"Nhắc nhẹ" tinh tế (24h lock)</td>
+              <td class="py-3.5 px-4 text-amber-700">Thông báo đòi nợ khô khan</td>
+              <td class="py-3.5 px-4 text-red-600">Thông báo ví gây áp lực</td>
+              <td class="py-3.5 px-4 text-red-600">Tự nhắn tin đòi, rất ngại</td>
+            </tr>
+            <tr>
+              <td class="py-3.5 px-4 font-semibold text-[#173E32]">Khả năng dùng khi mất mạng</td>
+              <td class="py-3.5 px-4 bg-[#D0F477]/10 font-bold text-[#173E32]">Offline-First có hàng đợi</td>
+              <td class="py-3.5 px-4 text-amber-700">Hạn chế</td>
+              <td class="py-3.5 px-4 text-red-600">Mất mạng là tê liệt</td>
+              <td class="py-3.5 px-4 text-emerald-700">Ghi chú cục bộ được</td>
+            </tr>
+            <tr>
+              <td class="py-3.5 px-4 font-semibold text-[#173E32]">Chính sách sử dụng</td>
+              <td class="py-3.5 px-4 bg-[#D0F477]/10 font-bold text-[#173E32]">Tự do, không ép mua gói</td>
+              <td class="py-3.5 px-4 text-red-600">Giới hạn 3 bill/ngày bản Free</td>
+              <td class="py-3.5 px-4 text-emerald-700">Miễn phí</td>
+              <td class="py-3.5 px-4 text-emerald-700">Miễn phí</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 4: KẾ HOẠCH HÀNH ĐỘNG -->
+    <section id="content-roadmap" class="hidden space-y-6">
+      
+      <!-- Phase 1 -->
+      <div class="bg-white rounded-3xl p-6 border-l-8 border-[#173E32] border border-[#E3E8DE] card-shadow space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="w-8 h-8 rounded-full bg-[#173E32] text-[#D0F477] font-black flex items-center justify-center text-sm">1</span>
+            <h3 class="text-lg font-bold text-[#173E32]">Giai Đoạn 1: Tối Ưu UX Nhập Liệu & Đóng Gói App (.APK / TestFlight)</h3>
+          </div>
+          <span class="px-3 py-1 rounded-full text-xs font-bold bg-[#D0F477] text-[#173E32]">Thời gian: 2 - 3 Ngày</span>
+        </div>
+        <p class="text-xs text-[#66766D]">Mục tiêu: Đưa trải nghiệm chạm vuốt đạt chuẩn commercial và xuất file cài đặt gửi cho bạn bè test thật.</p>
+        <ul class="text-xs space-y-2 text-[#20392F] list-disc list-inside pt-2">
+          <li>Thêm nút <strong>"Chọn tất cả" / "Bỏ chọn"</strong> trong màn hình chia tiền nhóm.</li>
+          <li>Thêm định dạng mẫu tin nhắn thân thiện khi bấm <strong>Chia sẻ nhóm qua Zalo / Messenger</strong>.</li>
+          <li>Tích hợp <code>expo-image-picker</code> cho phép đính kèm ảnh hóa đơn chi tiêu.</li>
+          <li>Cấu hình EAS Build xuất file <code>.apk</code> cho Android và TestFlight cho iOS.</li>
+        </ul>
+      </div>
+
+      <!-- Phase 2 -->
+      <div class="bg-white rounded-3xl p-6 border-l-8 border-[#6E55A5] border border-[#E3E8DE] card-shadow space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="w-8 h-8 rounded-full bg-[#6E55A5] text-white font-black flex items-center justify-center text-sm">2</span>
+            <h3 class="text-lg font-bold text-[#173E32]">Giai Đoạn 2: Đưa Backend Lên Cloud 24/7 & SMS OTP Thật</h3>
+          </div>
+          <span class="px-3 py-1 rounded-full text-xs font-bold bg-[#EAE5FC] text-[#6E55A5]">Thời gian: 3 - 5 Ngày</span>
+        </div>
+        <p class="text-xs text-[#66766D]">Mục tiêu: Độc lập hóa hệ thống khỏi máy tính dev, mở quyền truy cập toàn cầu qua mạng 4G/Wi-Fi.</p>
+        <ul class="text-xs space-y-2 text-[#20392F] list-disc list-inside pt-2">
+          <li>Chuyển đổi Prisma Database sang <strong>PostgreSQL</strong> (Neon / Supabase Serverless).</li>
+          <li>Deploy API Fastify lên <strong>Render / Railway</strong> có domain riêng và SSL HTTPS.</li>
+          <li>Kết nối dịch vụ SMS Gateway (eSMS / Zalo ZNS OTP) để gửi mã xác thực SĐT thật.</li>
+          <li>Tích hợp Expo Push Notification báo nợ và báo chuyển tiền tự động.</li>
+        </ul>
+      </div>
+
+      <!-- Phase 3 -->
+      <div class="bg-white rounded-3xl p-6 border-l-8 border-[#D0F477] border border-[#E3E8DE] card-shadow space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="w-8 h-8 rounded-full bg-[#D0F477] text-[#173E32] font-black flex items-center justify-center text-sm">3</span>
+            <h3 class="text-lg font-bold text-[#173E32]">Giai Đoạn 3: Tính Năng Đột Phá (AI Quét Hóa Đơn & Xuất Báo Cáo)</h3>
+          </div>
+          <span class="px-3 py-1 rounded-full text-xs font-bold bg-[#F7F8F2] text-[#173E32] border border-[#E3E8DE]">Thời gian: 1 Tuần</span>
+        </div>
+        <p class="text-xs text-[#66766D]">Mục tiêu: Tạo vũ khí cạnh tranh độc quyền khiến người dùng từ bỏ hoàn toàn Excel và Note.</p>
+        <ul class="text-xs space-y-2 text-[#20392F] list-disc list-inside pt-2">
+          <li>Tích hợp <strong>Gemini Vision AI</strong>: Chụp bill tự đọc từng dòng món ăn + tiền thuế VAT.</li>
+          <li>Tính năng <strong>"Khoanh món ai nấy trả"</strong>: Ai ăn món nào tick món đó cực nhanh.</li>
+          <li>Tính năng <strong>Xuất báo cáo Excel (.xlsx)</strong> chi tiết chuyến đi gửi thẳng vào nhóm Zalo.</li>
+        </ul>
+      </div>
+
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="pt-6 pb-12 text-center text-xs text-[#66766D] border-t border-[#E3E8DE]">
+      <p class="font-medium text-[#173E32]">ChiaNè — Chia tiền gọn, tình bạn vui.</p>
+      <p class="mt-1">Dự án sẵn sàng bước vào giai đoạn kiểm thử người dùng thật (Beta Testing).</p>
+    </footer>
+
+  </div>
+
+  <script>
+    function switchTab(tabId) {
+      const contents = ['overview', 'improvements', 'competition', 'roadmap'];
+      contents.forEach(id => {
+        const el = document.getElementById('content-' + id);
+        const btn = document.getElementById('tab-' + id);
+        if (id === tabId) {
+          el.classList.remove('hidden');
+          btn.classList.add('tab-active');
+          btn.classList.remove('text-[#66766D]');
+        } else {
+          el.classList.add('hidden');
+          btn.classList.remove('tab-active');
+          btn.classList.add('text-[#66766D]');
+        }
+      });
+    }
+
+    function filterItems(priority) {
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('bg-[#173E32]', 'text-white', 'active');
+        btn.classList.add('bg-[#F7F8F2]', 'text-[#66766D]');
+      });
+      event.target.classList.remove('bg-[#F7F8F2]', 'text-[#66766D]');
+      event.target.classList.add('bg-[#173E32]', 'text-white', 'active');
+
+      const cards = document.querySelectorAll('.improvement-card');
+      cards.forEach(card => {
+        if (priority === 'all' || card.getAttribute('data-priority') === priority) {
+          card.classList.remove('hidden');
+        } else {
+          card.classList.add('hidden');
+        }
+      });
+    }
+  </script>
+</body>
+</html>

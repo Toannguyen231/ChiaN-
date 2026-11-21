@@ -17,6 +17,7 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true'),
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

@@ -328,3 +328,18 @@ export interface SyncMutationResultDto {
   errorCode?: string;
   errorMessage?: string;
 }
+
+export interface ReceiptItemDto {
+  name: string;
+  priceVnd: number;
+  quantity?: number;
+}
+
+export interface ReceiptScanResultDto {
+  totalVnd: number;
+  detectedMerchant?: string | null;
+  detectedCategory?: ExpenseCategory;
+  date?: string | null;
+  items: ReceiptItemDto[];
+  notice?: string | null;
+}

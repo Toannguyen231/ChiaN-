@@ -263,3 +263,10 @@ export const changePhoneVerifySchema = z.object({
     .trim()
     .regex(/^\d{6}$/, 'Mã xác thực gồm đúng 6 chữ số'),
 });
+
+export const scanReceiptSchema = z.object({
+  imageBase64: z.string().min(10, 'Dữ liệu ảnh không hợp lệ'),
+  mimeType: z.string().optional().default('image/jpeg'),
+});
+
+export type ScanReceiptInput = z.infer<typeof scanReceiptSchema>;

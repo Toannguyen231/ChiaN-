@@ -14,6 +14,7 @@ import { registerExpensesRoutes } from './routes/expenses.routes';
 import { registerGroupsRoutes } from './routes/groups.routes';
 import { registerHealthRoutes } from './routes/health.routes';
 import { registerInvitesRoutes } from './routes/invites.routes';
+import { registerOcrRoutes } from './routes/ocr.routes';
 import { registerSettlementsRoutes } from './routes/settlements.routes';
 import { registerSyncRoutes } from './routes/sync.routes';
 import { createOtpProvider, OtpService, type OtpDeliveryProvider } from './services/otp.service';
@@ -33,6 +34,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const app = Fastify({
     logger: config.NODE_ENV === 'development',
+    bodyLimit: 15 * 1024 * 1024,
   });
 
   await app.register(cors, {
@@ -133,6 +135,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerSyncRoutes(app, {
     prisma,
     requireAuthOrGuest,
+  });
+  await registerOcrRoutes(app, {
+    requireAuthOrGuest,
+    geminiApiKey: config.GEMINI_API_KEY,
   });
 
   if (ownsPrisma) {

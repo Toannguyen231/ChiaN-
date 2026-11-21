@@ -30,7 +30,20 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(!cachedGroup);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState(false);
+  const [copiedZaloNotice, setCopiedZaloNotice] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+
+  const getZaloInviteMessage = () => {
+    if (!group) return '';
+    return `👋 Ê mọi người ơi, mình lập nhóm "${group.name}" trên ChiaNè để chia tiền ăn chơi/du lịch cho rõ ràng, không lo tính nhầm!\n👉 Bấm vào liên kết này vào nhóm cùng mình nhé:\n${group.inviteLink}`;
+  };
+
+  const handleCopyZaloMessage = async () => {
+    if (!group) return;
+    await Clipboard.setStringAsync(getZaloInviteMessage());
+    setCopiedZaloNotice(true);
+    setTimeout(() => setCopiedZaloNotice(false), 2500);
+  };
 
   const loadGroup = useCallback(async () => {
     if (!cachedGroup) setLoading(true);
@@ -88,7 +101,7 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
   const handleShare = async () => {
     if (!group) return;
     await Share.share({
-      message: `Tham gia nhóm "${group.name}" trên ChiaNè cùng mình nha: ${group.inviteLink}`,
+      message: getZaloInviteMessage(),
       url: group.inviteLink,
     });
   };
@@ -170,6 +183,26 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
                 </Text>
               </Pressable>
             ) : null}
+          </View>
+
+          <View style={styles.zaloCard}>
+            <View style={styles.zaloHeader}>
+              <Text style={styles.zaloTitle}>💬 Mẫu tin nhắn gửi Zalo / Messenger</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void handleCopyZaloMessage()}
+                hitSlop={8}
+                style={styles.zaloCopyBtn}
+              >
+                <IconCopy width={14} height={14} />
+                <Text style={styles.zaloCopyText}>
+                  {copiedZaloNotice ? 'Đã sao chép!' : 'Sao chép'}
+                </Text>
+              </Pressable>
+            </View>
+            <Text style={styles.zaloPreviewText} numberOfLines={4}>
+              {getZaloInviteMessage()}
+            </Text>
           </View>
 
           <Text style={styles.membersHeading}>THÀNH VIÊN · {group.memberCount}</Text>
@@ -260,6 +293,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  zaloCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    padding: 16,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  zaloHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  zaloTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.ink,
+  },
+  zaloCopyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.lavender,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  zaloCopyText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.purple,
+  },
+  zaloPreviewText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.muted,
+    backgroundColor: colors.paper,
+    padding: 10,
+    borderRadius: 8,
   },
   linkActionText: {
     fontFamily: fonts.semiBold,
