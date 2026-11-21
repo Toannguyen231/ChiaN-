@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildVietQrPayload, computeCrc16Ccitt } from '../index';
+import { buildVietQrPayload, computeCrc16Ccitt, searchVnBanks } from '../index';
 
 describe('VietQR payload generation', () => {
   it('returns null when recipient bank info is incomplete', () => {
@@ -27,5 +27,21 @@ describe('VietQR payload generation', () => {
     const bodyWithoutCrc = payload!.slice(0, -4);
     const crc = payload!.slice(-4);
     expect(computeCrc16Ccitt(bodyWithoutCrc)).toBe(crc);
+  });
+});
+
+describe('Vietnamese bank abbreviation search', () => {
+  it('finds banks by common Vietnamese abbreviations', () => {
+    expect(searchVnBanks('vcb')[0]?.shortName).toBe('Vietcombank');
+    expect(searchVnBanks('TCB')[0]?.shortName).toBe('Techcombank');
+    expect(searchVnBanks('vtb')[0]?.shortName).toBe('VietinBank');
+    expect(searchVnBanks('agri')[0]?.shortName).toBe('Agribank');
+    expect(searchVnBanks('mb')[0]?.shortName).toBe('MB Bank');
+  });
+
+  it('supports accent-insensitive full name and BIN queries', () => {
+    expect(searchVnBanks('quan doi')[0]?.shortName).toBe('MB Bank');
+    expect(searchVnBanks('970416')[0]?.shortName).toBe('ACB');
+    expect(searchVnBanks('').length).toBeGreaterThanOrEqual(16);
   });
 });

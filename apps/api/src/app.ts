@@ -11,6 +11,7 @@ import { registerActivityRoutes } from './routes/activity.routes';
 import { registerAuthRoutes } from './routes/auth.routes';
 import { registerDashboardRoutes } from './routes/dashboard.routes';
 import { registerExpensesRoutes } from './routes/expenses.routes';
+import { registerExportRoutes } from './routes/export.routes';
 import { registerGroupsRoutes } from './routes/groups.routes';
 import { registerHealthRoutes } from './routes/health.routes';
 import { registerInvitesRoutes } from './routes/invites.routes';
@@ -94,7 +95,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
   });
 
-  const otpProvider = options.otpProvider ?? createOtpProvider(config.OTP_PROVIDER);
+  const otpProvider = options.otpProvider ?? createOtpProvider(config);
   const otpService = new OtpService(prisma, config, otpProvider);
   const tokenService = new TokenService(prisma, config);
   const requireAuth = createRequireAuth(tokenService);
@@ -142,6 +143,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     geminiApiKey: config.GEMINI_API_KEY,
   });
   await registerPotRoutes(app, {
+    prisma,
+    requireAuthOrGuest,
+  });
+  await registerExportRoutes(app, {
     prisma,
     requireAuthOrGuest,
   });

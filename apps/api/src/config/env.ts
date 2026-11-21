@@ -9,7 +9,7 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_ACCESS_TTL: z.string().min(1).default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
-  OTP_PROVIDER: z.enum(['console']).default('console'),
+  OTP_PROVIDER: z.enum(['console', 'esms', 'zalo_zns']).default('console'),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
@@ -18,6 +18,11 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true'),
   GEMINI_API_KEY: z.string().optional(),
+  ESMS_API_KEY: z.string().optional(),
+  ESMS_SECRET_KEY: z.string().optional(),
+  ESMS_BRANDNAME: z.string().optional(),
+  ZALO_ZNS_ACCESS_TOKEN: z.string().optional(),
+  ZALO_ZNS_TEMPLATE_ID: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

@@ -115,7 +115,6 @@ export function SplitMethodScreen({ navigation, route }: Props) {
   const toggleEqualMember = (memberId: string) => {
     setSelectedIds((prev) => {
       if (prev.includes(memberId)) {
-        if (prev.length === 1) return prev; // keep at least 1 participant
         return prev.filter((id) => id !== memberId);
       }
       return [...prev, memberId];
@@ -179,6 +178,14 @@ export function SplitMethodScreen({ navigation, route }: Props) {
     setExactMap(next);
   };
 
+  const clearExactAll = () => {
+    const next: Record<string, number> = {};
+    for (const m of members) {
+      next[m.id] = 0;
+    }
+    setExactMap(next);
+  };
+
   const resetPercentagesEqually = () => {
     if (members.length === 0) return;
     const base = Math.floor(10000 / members.length);
@@ -190,6 +197,17 @@ export function SplitMethodScreen({ navigation, route }: Props) {
     });
     setPctTextMap(next);
   };
+
+  const clearPercentagesAll = () => {
+    const next: Record<string, string> = {};
+    for (const m of members) {
+      next[m.id] = '0';
+    }
+    setPctTextMap(next);
+  };
+
+  const allEqualSelected = members.length > 0 && selectedIds.length === members.length;
+  const noneEqualSelected = selectedIds.length === 0;
 
   return (
     <ScreenContainer
@@ -244,28 +262,48 @@ export function SplitMethodScreen({ navigation, route }: Props) {
             <>
               <View style={styles.bulkActionRow}>
                 <Text style={styles.selectedCountText}>
-                  Đã chọn {selectedIds.length}/{members.length} người
+                  {`Đã chọn ${selectedIds.length}/${members.length} người`}
                 </Text>
                 <View style={styles.bulkButtons}>
                   <Pressable
                     accessibilityRole="button"
+                    disabled={allEqualSelected}
                     onPress={() => setSelectedIds(members.map((m) => m.id))}
                     hitSlop={6}
-                    style={styles.bulkBtn}
+                    style={[
+                      styles.bulkPill,
+                      allEqualSelected && styles.bulkPillDisabled,
+                    ]}
                   >
-                    <Text style={styles.bulkBtnText}>Chọn tất cả</Text>
+                    <Text
+                      style={[
+                        styles.bulkPillText,
+                        allEqualSelected && styles.bulkPillTextDisabled,
+                      ]}
+                    >
+                      Chọn tất cả
+                    </Text>
                   </Pressable>
-                  <Text style={styles.bulkDot}>·</Text>
                   <Pressable
                     accessibilityRole="button"
-                    onPress={() => {
-                      const fallback = draft.paidByMemberId || members[0]?.id;
-                      setSelectedIds(fallback ? [fallback] : []);
-                    }}
+                    disabled={noneEqualSelected}
+                    onPress={() => setSelectedIds([])}
                     hitSlop={6}
-                    style={styles.bulkBtn}
+                    style={[
+                      styles.bulkPill,
+                      styles.bulkPillClear,
+                      noneEqualSelected && styles.bulkPillDisabled,
+                    ]}
                   >
-                    <Text style={styles.bulkBtnText}>Bỏ chọn</Text>
+                    <Text
+                      style={[
+                        styles.bulkPillText,
+                        styles.bulkPillClearText,
+                        noneEqualSelected && styles.bulkPillTextDisabled,
+                      ]}
+                    >
+                      Bỏ chọn
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -312,15 +350,24 @@ export function SplitMethodScreen({ navigation, route }: Props) {
               </View>
 
               {totalVnd > 0 ? (
-                <View style={styles.limeStatusCard}>
-                  <View style={styles.statusTextCol}>
-                    <Text style={styles.limeTitle}>Đã chia đủ</Text>
-                    <Text style={styles.limeSub}>
-                      {`${formatVnd(totalVnd, { includeSymbol: false })} / ${formatVnd(totalVnd)}`}
+                selectedIds.length > 0 ? (
+                  <View style={styles.limeStatusCard}>
+                    <View style={styles.statusTextCol}>
+                      <Text style={styles.limeTitle}>Đã chia đủ</Text>
+                      <Text style={styles.limeSub}>
+                        {`${formatVnd(totalVnd, { includeSymbol: false })} / ${formatVnd(totalVnd)}`}
+                      </Text>
+                    </View>
+                    <IconCheckDark width={24} height={24} />
+                  </View>
+                ) : (
+                  <View style={styles.peachWarningCard}>
+                    <Text style={styles.peachTitle}>Chưa chọn thành viên nào</Text>
+                    <Text style={styles.peachSub}>
+                      Hãy chọn ít nhất 1 người để chia khoản chi này.
                     </Text>
                   </View>
-                  <IconCheckDark width={24} height={24} />
-                </View>
+                )
               ) : null}
 
               <Text style={styles.helperCaption}>
@@ -372,6 +419,9 @@ export function SplitMethodScreen({ navigation, route }: Props) {
               <View style={styles.quickActionRow}>
                 <Pressable onPress={resetExactEqually} hitSlop={8}>
                   <Text style={styles.quickActionLink}>Chia đều lại</Text>
+                </Pressable>
+                <Pressable onPress={clearExactAll} hitSlop={8}>
+                  <Text style={styles.quickActionMutedLink}>Đặt về 0</Text>
                 </Pressable>
               </View>
 
@@ -455,6 +505,9 @@ export function SplitMethodScreen({ navigation, route }: Props) {
                 <Pressable onPress={resetPercentagesEqually} hitSlop={8}>
                   <Text style={styles.quickActionLink}>Chia đều %</Text>
                 </Pressable>
+                <Pressable onPress={clearPercentagesAll} hitSlop={8}>
+                  <Text style={styles.quickActionMutedLink}>Đặt về 0%</Text>
+                </Pressable>
               </View>
 
               {percentageComputed.valid ? (
@@ -524,18 +577,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  bulkBtn: {
-    paddingVertical: 2,
-    paddingHorizontal: 4,
+  bulkPill: {
+    backgroundColor: colors.lime,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  bulkBtnText: {
+  bulkPillClear: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  bulkPillDisabled: {
+    opacity: 0.45,
+  },
+  bulkPillText: {
     fontFamily: fonts.semiBold,
     fontSize: 12,
     color: colors.forest,
   },
-  bulkDot: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
+  bulkPillClearText: {
+    color: colors.coral,
+  },
+  bulkPillTextDisabled: {
     color: colors.muted,
   },
   listCard: {
@@ -623,12 +687,19 @@ const styles = StyleSheet.create({
   quickActionRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 16,
     marginTop: -6,
   },
   quickActionLink: {
     fontFamily: fonts.semiBold,
     fontSize: 12,
     color: colors.forest,
+  },
+  quickActionMutedLink: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.coral,
   },
   limeStatusCard: {
     minHeight: 73,

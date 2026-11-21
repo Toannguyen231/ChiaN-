@@ -3,6 +3,7 @@ import type {
   ActivityType,
   DashboardDto,
   GroupMemberRole,
+  PendingConfirmationBannerDto,
 } from '@chiane/shared';
 import type { PrismaClient } from '@prisma/client';
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
@@ -89,11 +90,46 @@ export async function registerDashboardRoutes(
       createdAt: item.createdAt.toISOString(),
     }));
 
+    const pendingConfirmationRows =
+      pendingConfirmationsCount > 0 && activeGroupIds.length > 0
+        ? await prisma.settlement.findMany({
+            where: {
+              groupId: { in: activeGroupIds },
+              toMemberId: { in: activeMemberIds },
+              status: 'REPORTED',
+            },
+            select: {
+              id: true,
+              groupId: true,
+              fromMemberId: true,
+              amountVnd: true,
+              reportedAt: true,
+              group: { select: { name: true } },
+              fromMember: { select: { displayName: true } },
+            },
+            orderBy: { reportedAt: 'desc' },
+            take: 5,
+          })
+        : [];
+
+    const pendingConfirmations: PendingConfirmationBannerDto[] = pendingConfirmationRows.map(
+      (row) => ({
+        settlementId: row.id,
+        groupId: row.groupId,
+        groupName: row.group.name,
+        fromMemberId: row.fromMemberId,
+        fromName: row.fromMember.displayName,
+        amountVnd: row.amountVnd,
+        reportedAt: (row.reportedAt ?? new Date()).toISOString(),
+      })
+    );
+
     const response: DashboardDto = {
       totalOwedToYouVnd,
       totalYouOweVnd,
       recentGroups,
       pendingConfirmationsCount,
+      pendingConfirmations,
       recentActivities,
     };
 

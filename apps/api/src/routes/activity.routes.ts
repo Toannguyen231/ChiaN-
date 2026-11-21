@@ -10,6 +10,7 @@ import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
 import { createRequireGroupRole } from '../middleware/rbac';
 import { logActivity, parseActivityMetadata } from '../services/activity.service';
 import { assertNotArchived } from '../services/balance.service';
+import { notifyFriendlyReminder } from '../services/push.service';
 import { AppError } from '../utils/errors';
 
 export interface ActivityRoutesDeps {
@@ -205,6 +206,15 @@ export async function registerActivityRoutes(
         message: created.message,
         sentAt: created.sentAt.toISOString(),
       };
+
+      void notifyFriendlyReminder(prisma, {
+        groupId: created.groupId,
+        groupName: group.name,
+        senderName: membership.displayName,
+        recipientMemberId: recipient.id,
+        amountVnd: created.amountVnd,
+        message: created.message,
+      });
 
       return reply.status(201).send({ reminder: dto });
     }

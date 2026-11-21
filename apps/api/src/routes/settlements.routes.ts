@@ -14,6 +14,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
 import { createRequireGroupRole } from '../middleware/rbac';
 import { logActivity } from '../services/activity.service';
+import { notifySettlementReported } from '../services/push.service';
 import {
   assertNotArchived,
   buildBankPreview,
@@ -431,6 +432,15 @@ export async function registerSettlementsRoutes(
         });
 
         return record;
+      });
+
+      void notifySettlementReported(prisma, {
+        settlementId: created.id,
+        groupId: created.groupId,
+        groupName: created.group.name,
+        fromName: created.fromMember.displayName,
+        toMemberId: created.toMemberId,
+        amountVnd: created.amountVnd,
       });
 
       return reply.status(201).send({

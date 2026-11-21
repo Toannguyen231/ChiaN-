@@ -14,8 +14,127 @@ export class ConsoleOtpProvider implements OtpDeliveryProvider {
   }
 }
 
-export function createOtpProvider(providerName: AppConfig['OTP_PROVIDER']): OtpDeliveryProvider {
-  switch (providerName) {
+function normalizeVnPhoneForGateway(phone: string): string {
+  const digits = phone.replace(/[^\d+]/g, '');
+  if (digits.startsWith('+84')) return `84${digits.slice(3)}`;
+  if (digits.startsWith('0')) return `84${digits.slice(1)}`;
+  return digits.replace(/^\+/, '');
+}
+
+export class EsmsOtpProvider implements OtpDeliveryProvider {
+  constructor(
+    private readonly options: {
+      apiKey?: string;
+      secretKey?: string;
+      brandname?: string;
+    }
+  ) {}
+
+  async sendOtp(phone: string, code: string, ttlSeconds: number): Promise<void> {
+    if (!this.options.apiKey || !this.options.secretKey) {
+      throw new AppError(
+        500,
+        'OTP_PROVIDER_MISCONFIGURED',
+        'Thiếu ESMS_API_KEY hoặc ESMS_SECRET_KEY để gửi SMS OTP.'
+      );
+    }
+
+    const minutes = Math.max(1, Math.ceil(ttlSeconds / 60));
+    const response = await fetch(
+      'https://rest.esms.vn/MainService.svc/json/SendMultipleMessage_V4_post_json/',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ApiKey: this.options.apiKey,
+          SecretKey: this.options.secretKey,
+          Phone: normalizeVnPhoneForGateway(phone),
+          Content: `Ma OTP ChiaNe cua ban la ${code}. Hieu luc trong ${minutes} phut.`,
+          Brandname: this.options.brandname || 'Baotrixemay',
+          SmsType: this.options.brandname ? '2' : '8',
+          IsUnicode: '0',
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new AppError(502, 'OTP_DELIVERY_FAILED', 'Không thể kết nối cổng SMS eSMS.');
+    }
+
+    const payload = (await response.json()) as { CodeResult?: string; ErrorMessage?: string };
+    if (payload.CodeResult !== '100') {
+      throw new AppError(
+        502,
+        'OTP_DELIVERY_FAILED',
+        payload.ErrorMessage || `Gửi SMS OTP thất bại (mã ${payload.CodeResult ?? 'unknown'}).`
+      );
+    }
+  }
+}
+
+export class ZaloZnsOtpProvider implements OtpDeliveryProvider {
+  constructor(
+    private readonly options: {
+      accessToken?: string;
+      templateId?: string;
+    }
+  ) {}
+
+  async sendOtp(phone: string, code: string, ttlSeconds: number): Promise<void> {
+    if (!this.options.accessToken || !this.options.templateId) {
+      throw new AppError(
+        500,
+        'OTP_PROVIDER_MISCONFIGURED',
+        'Thiếu ZALO_ZNS_ACCESS_TOKEN hoặc ZALO_ZNS_TEMPLATE_ID để gửi OTP qua Zalo ZNS.'
+      );
+    }
+
+    const minutes = Math.max(1, Math.ceil(ttlSeconds / 60));
+    const response = await fetch('https://business.openapi.zalo.me/message/template', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        access_token: this.options.accessToken,
+      },
+      body: JSON.stringify({
+        phone: normalizeVnPhoneForGateway(phone),
+        template_id: this.options.templateId,
+        template_data: {
+          otp: code,
+          ttl_minutes: String(minutes),
+        },
+        tracking_id: `chiane-otp-${Date.now()}`,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new AppError(502, 'OTP_DELIVERY_FAILED', 'Không thể kết nối Zalo ZNS API.');
+    }
+
+    const payload = (await response.json()) as { error?: number; message?: string };
+    if (payload.error !== 0) {
+      throw new AppError(
+        502,
+        'OTP_DELIVERY_FAILED',
+        payload.message || `Gửi Zalo ZNS OTP thất bại (mã ${payload.error ?? 'unknown'}).`
+      );
+    }
+  }
+}
+
+export function createOtpProvider(config: AppConfig): OtpDeliveryProvider {
+  switch (config.OTP_PROVIDER) {
+    case 'esms':
+      return new EsmsOtpProvider({
+        apiKey: config.ESMS_API_KEY,
+        secretKey: config.ESMS_SECRET_KEY,
+        brandname: config.ESMS_BRANDNAME,
+      });
+    case 'zalo_zns':
+      return new ZaloZnsOtpProvider({
+        accessToken: config.ZALO_ZNS_ACCESS_TOKEN,
+        templateId: config.ZALO_ZNS_TEMPLATE_ID,
+      });
     case 'console':
     default:
       return new ConsoleOtpProvider();

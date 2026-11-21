@@ -1,0 +1,211 @@
+// Auto-mirrored PostgreSQL schema for cloud production (Render / Supabase / Neon / Railway)
+// For production PostgreSQL deployment, switch provider to "postgresql" and supply a Postgres DATABASE_URL.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                String          @id @default(cuid())
+  phone             String          @unique
+  displayName       String          @default("")
+  avatarUrl         String?
+  bankBin           String?
+  bankName          String?
+  bankAccountNumber String?
+  bankAccountHolder String?
+  expoPushToken     String?
+  notifyReminders   Boolean         @default(true)
+  notifyExpenses    Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  refreshTokens     RefreshToken[]
+  createdGroups     Group[]         @relation("GroupCreator")
+  memberships       GroupMember[]
+}
+
+model OtpChallenge {
+  id          String    @id @default(cuid())
+  phone       String
+  codeHash    String
+  salt        String
+  expiresAt   DateTime
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([phone, createdAt])
+}
+
+model RefreshToken {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Group {
+  id              String            @id @default(cuid())
+  name            String
+  category        String            @default("TRAVEL")
+  currency        String            @default("VND")
+  inviteCode           String                 @unique
+  isArchived           Boolean                @default(false)
+  potCustodianMemberId String?
+  createdByUserId      String
+  createdByUser   User              @relation("GroupCreator", fields: [createdByUserId], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  members         GroupMember[]
+  expenses        Expense[]
+  settlements      Settlement[]
+  reminders        PaymentReminder[]
+  activities       ActivityLog[]
+  potContributions GroupPotContribution[]
+
+  @@index([createdByUserId])
+}
+
+model GroupMember {
+  id                  String            @id @default(cuid())
+  groupId             String
+  group               Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId              String?
+  user                User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestTokenHash      String?           @unique
+  displayName         String
+  role                String            @default("MEMBER")
+  status              String            @default("ACTIVE")
+  joinedAt            DateTime          @default(now())
+  paidExpenses        Expense[]         @relation("ExpensePayer")
+  createdExpenses     Expense[]         @relation("ExpenseCreator")
+  expenseSplits       ExpenseSplit[]
+  sentSettlements     Settlement[]      @relation("SettlementFrom")
+  receivedSettlements Settlement[]      @relation("SettlementTo")
+  sentReminders       PaymentReminder[]      @relation("ReminderSender")
+  receivedReminders   PaymentReminder[]      @relation("ReminderRecipient")
+  activities          ActivityLog[]
+  potContributions    GroupPotContribution[]
+
+  @@unique([groupId, userId])
+  @@index([groupId, status])
+}
+
+model Expense {
+  id                String         @id @default(cuid())
+  groupId           String
+  group             Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  title             String
+  amountVnd         Int
+  category          String         @default("FOOD")
+  splitMethod       String         @default("EQUAL")
+  paidByMemberId    String
+  paidByMember      GroupMember    @relation("ExpensePayer", fields: [paidByMemberId], references: [id])
+  createdByMemberId String
+  createdByMember   GroupMember    @relation("ExpenseCreator", fields: [createdByMemberId], references: [id])
+  expenseDate       DateTime       @default(now())
+  note              String?
+  receiptImageUrl   String?
+  isPaidFromPot     Boolean        @default(false)
+  clientMutationId  String?        @unique
+  deletedAt         DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  splits            ExpenseSplit[]
+
+  @@index([groupId, deletedAt, expenseDate])
+}
+
+model ExpenseSplit {
+  id            String      @id @default(cuid())
+  expenseId     String
+  expense       Expense     @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  memberId      String
+  member        GroupMember @relation(fields: [memberId], references: [id])
+  amountVnd     Int
+  percentageBps Int?
+
+  @@unique([expenseId, memberId])
+  @@index([memberId])
+}
+
+model Settlement {
+  id                  String            @id @default(cuid())
+  groupId             String
+  group               Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromMemberId        String
+  fromMember          GroupMember       @relation("SettlementFrom", fields: [fromMemberId], references: [id])
+  toMemberId          String
+  toMember            GroupMember       @relation("SettlementTo", fields: [toMemberId], references: [id])
+  amountVnd           Int
+  method              String            @default("BANK_TRANSFER")
+  status              String            @default("REPORTED")
+  memo                String?
+  bankAccountSnapshot String?
+  idempotencyKey      String?           @unique
+  reportedAt          DateTime?
+  confirmedAt         DateTime?
+  rejectedAt          DateTime?
+  rejectReason        String?
+  createdAt           DateTime          @default(now())
+  reminders           PaymentReminder[]
+
+  @@index([groupId, status])
+}
+
+model PaymentReminder {
+  id                String      @id @default(cuid())
+  groupId           String
+  group             Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  senderMemberId    String
+  senderMember      GroupMember @relation("ReminderSender", fields: [senderMemberId], references: [id])
+  recipientMemberId String
+  recipientMember   GroupMember @relation("ReminderRecipient", fields: [recipientMemberId], references: [id])
+  settlementId      String?
+  settlement        Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  amountVnd         Int
+  message           String
+  sentAt            DateTime    @default(now())
+
+  @@index([groupId, recipientMemberId, sentAt])
+}
+
+model ActivityLog {
+  id            String       @id @default(cuid())
+  groupId       String
+  group         Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  actorMemberId String?
+  actorMember   GroupMember? @relation(fields: [actorMemberId], references: [id], onDelete: SetNull)
+  type          String
+  title         String
+  subtitle      String
+  metadataJson  String?
+  createdAt     DateTime     @default(now())
+
+  @@index([groupId, createdAt])
+}
+
+model GroupPotContribution {
+  id        String      @id @default(cuid())
+  groupId   String
+  group     Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    GroupMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  amountVnd Int
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@index([groupId, createdAt])
+  @@index([memberId])
+}

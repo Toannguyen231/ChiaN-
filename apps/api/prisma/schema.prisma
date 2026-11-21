@@ -17,6 +17,7 @@ model User {
   bankName          String?
   bankAccountNumber String?
   bankAccountHolder String?
+  expoPushToken     String?
   notifyReminders   Boolean         @default(true)
   notifyExpenses    Boolean         @default(true)
   createdAt         DateTime        @default(now())

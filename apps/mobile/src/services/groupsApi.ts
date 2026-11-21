@@ -124,4 +124,15 @@ export const groupsApi = {
       authenticated: true,
     });
   },
+
+  exportExcelBase64(groupId: string): Promise<{
+    filename: string;
+    mimeType: string;
+    base64: string;
+    byteLength: number;
+  }> {
+    return apiRequest(`/api/v1/groups/${groupId}/export/xlsx-base64`, {
+      authenticated: true,
+    });
+  },
 };

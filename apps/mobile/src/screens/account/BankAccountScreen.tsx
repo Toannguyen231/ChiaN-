@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { VN_BANKS } from '@chiane/shared';
+import { searchVnBanks } from '@chiane/shared';
 import IconSearch from '../../../assets/figma/icon-search.svg';
 import {
   AppHeader,
@@ -37,14 +37,7 @@ export function BankAccountScreen({ navigation }: Props) {
   const hasSavedBank = Boolean(user?.bankBin && user?.bankAccountNumber);
 
   const filteredBanks = useMemo(() => {
-    const q = bankFilter.trim().toLowerCase();
-    if (!q) return VN_BANKS;
-    return VN_BANKS.filter(
-      (b) =>
-        b.shortName.toLowerCase().includes(q) ||
-        b.name.toLowerCase().includes(q) ||
-        b.bin.includes(q)
-    );
+    return searchVnBanks(bankFilter);
   }, [bankFilter]);
 
   const handleSave = async () => {
@@ -184,7 +177,7 @@ export function BankAccountScreen({ navigation }: Props) {
           <TextInput
             value={bankFilter}
             onChangeText={setBankFilter}
-            placeholder="Tìm Vietcombank, MB Bank, ACB..."
+            placeholder="Gõ nhanh VCB, TCB, MB, ACB, Vietcombank..."
             placeholderTextColor={colors.muted}
             style={styles.searchInput}
           />
@@ -213,7 +206,9 @@ export function BankAccountScreen({ navigation }: Props) {
                 >
                   {bank.shortName}
                 </Text>
-                <Text style={styles.bankBin}>{bank.bin}</Text>
+                <Text style={styles.bankBin}>
+                  {`${bank.aliases[0] ?? ''} · ${bank.bin}`}
+                </Text>
               </Pressable>
             );
           })}

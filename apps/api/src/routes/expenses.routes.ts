@@ -17,6 +17,7 @@ import {
   resolveMembershipForGroup,
 } from '../services/expense.service';
 import { serializeExpenseRecord } from '../services/group.service';
+import { notifyExpenseCreated } from '../services/push.service';
 import { AppError } from '../utils/errors';
 
 export interface ExpensesRoutesDeps {
@@ -69,6 +70,19 @@ export async function registerExpensesRoutes(
         actorMemberId: membership.memberId,
         input,
       });
+
+      if (result.created) {
+        void notifyExpenseCreated(prisma, {
+          groupId: membership.groupId,
+          expenseId: result.expense.id,
+          title: result.expense.title,
+          amountVnd: result.expense.amountVnd,
+          payerName: result.expense.paidByName,
+          actorMemberId: membership.memberId,
+          isPaidFromPot: result.expense.isPaidFromPot,
+          splitMemberIds: result.expense.splits.map((s) => s.memberId),
+        });
+      }
 
       return reply
         .status(result.created ? 201 : 200)

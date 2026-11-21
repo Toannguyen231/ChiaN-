@@ -207,11 +207,22 @@ export interface ActivityItemDto {
   createdAt: string;
 }
 
+export interface PendingConfirmationBannerDto {
+  settlementId: string;
+  groupId: string;
+  groupName: string;
+  fromMemberId: string;
+  fromName: string;
+  amountVnd: number;
+  reportedAt: string;
+}
+
 export interface DashboardDto {
   totalOwedToYouVnd: number;
   totalYouOweVnd: number;
   recentGroups: GroupSummaryDto[];
   pendingConfirmationsCount: number;
+  pendingConfirmations: PendingConfirmationBannerDto[];
   recentActivities: ActivityItemDto[];
 }
 

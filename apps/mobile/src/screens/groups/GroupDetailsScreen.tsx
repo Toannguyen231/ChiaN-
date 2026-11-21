@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Alert,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,6 +13,8 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import {
   buildVietQrPayload,
   formatVnd,
@@ -84,6 +88,7 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
   const [luckyWheelOpen, setLuckyWheelOpen] = useState(false);
   const [recapOpen, setRecapOpen] = useState(false);
   const [recapData, setRecapData] = useState<TripRecapData | null>(null);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [potContributeOpen, setPotContributeOpen] = useState(false);
   const [potDetailOpen, setPotDetailOpen] = useState(false);
   const [potMemberId, setPotMemberId] = useState('');
@@ -182,6 +187,80 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
       .catch(() => [] as SettlementDto[]);
     setRecapData(calculateTripRecap(group, settlements));
     setRecapOpen(true);
+  };
+
+  const handleExportExcel = async () => {
+    if (!group || exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      const res = await groupsApi.exportExcelBase64(group.id);
+      if (Platform.OS === 'web') {
+        const binaryString = globalThis.atob(res.base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i += 1) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const WebBlob = Blob as unknown as new (
+          parts: Uint8Array[],
+          options?: { type?: string }
+        ) => Blob;
+        const blob = new WebBlob([bytes], { type: res.mimeType });
+        const url = URL.createObjectURL(blob);
+        const webGlobal = globalThis as unknown as {
+          document?: {
+            createElement: (tag: string) => {
+              href: string;
+              download: string;
+              click: () => void;
+            };
+            body?: {
+              appendChild: (el: unknown) => void;
+              removeChild: (el: unknown) => void;
+            };
+          };
+        };
+        if (webGlobal.document?.body) {
+          const link = webGlobal.document.createElement('a');
+          link.href = url;
+          link.download = res.filename;
+          webGlobal.document.body.appendChild(link);
+          link.click();
+          webGlobal.document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!baseDir) {
+        Alert.alert('Lỗi', 'Không tìm thấy thư mục lưu tệp tạm trên thiết bị.');
+        return;
+      }
+      const fileUri = `${baseDir}${res.filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, res.base64, {
+        encoding: 'base64',
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert('Đã tạo tệp Excel', `Tệp đã lưu tại: ${fileUri}`);
+        return;
+      }
+      await Sharing.shareAsync(fileUri, {
+        mimeType: res.mimeType,
+        dialogTitle: 'Xuất báo cáo Excel ChiaNè',
+        UTI: 'org.openxmlformats.spreadsheetml.sheet',
+      });
+    } catch (err) {
+      Alert.alert(
+        'Không thể xuất Excel',
+        err instanceof ApiClientError
+          ? err.message
+          : 'Vui lòng thử lại khi có kết nối mạng.'
+      );
+    } finally {
+      setExportingExcel(false);
+    }
   };
 
   const handleOpenPotContribute = () => {
@@ -294,6 +373,16 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
         style={({ pressed }) => [styles.funPillBtn, styles.funPillForest, pressed && styles.pressed]}
       >
         <Text style={styles.funPillForestText}>🏆 Tổng kết chuyến đi</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        disabled={exportingExcel}
+        onPress={() => void handleExportExcel()}
+        style={({ pressed }) => [styles.funPillBtn, styles.funPillLime, pressed && styles.pressed]}
+      >
+        <Text style={styles.funPillLimeText}>
+          {exportingExcel ? '⏳ Đang xuất...' : '📊 Xuất Excel'}
+        </Text>
       </Pressable>
     </View>
   ) : null;
@@ -1721,10 +1810,12 @@ const styles = StyleSheet.create({
   },
   socialFunRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
   },
   funPillBtn: {
     flex: 1,
+    minWidth: 112,
     minHeight: 44,
     borderRadius: radii.button,
     paddingHorizontal: 12,
@@ -1746,6 +1837,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 12,
     color: colors.lime,
+  },
+  funPillLime: {
+    backgroundColor: colors.lime,
+    borderWidth: 1,
+    borderColor: colors.forest,
+  },
+  funPillLimeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
   },
   potCard: {
     backgroundColor: colors.white,

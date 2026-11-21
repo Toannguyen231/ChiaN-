@@ -14,7 +14,11 @@ import {
 } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { formatVnd, type GroupSummaryDto } from '@chiane/shared';
+import {
+  formatVnd,
+  type GroupSummaryDto,
+  type PendingConfirmationBannerDto,
+} from '@chiane/shared';
 import IconBell from '../../../assets/figma/icon-bell.svg';
 import IconChevron from '../../../assets/figma/icon-chevron.svg';
 import {
@@ -93,6 +97,8 @@ export function DashboardScreen() {
   const totalOwedToYouVnd = dashboard?.totalOwedToYouVnd ?? 0;
   const totalYouOweVnd = dashboard?.totalYouOweVnd ?? 0;
   const pendingConfirmationsCount = dashboard?.pendingConfirmationsCount ?? 0;
+  const pendingConfirmations: PendingConfirmationBannerDto[] =
+    dashboard?.pendingConfirmations ?? [];
 
   const handleQuickAddExpense = () => {
     if (recentGroups.length === 0) {
@@ -180,6 +186,35 @@ export function DashboardScreen() {
             variant="primary"
             onPress={handleQuickAddExpense}
           />
+
+          {pendingConfirmations.map((item) => (
+            <Pressable
+              key={item.settlementId}
+              accessibilityRole="button"
+              onPress={() =>
+                navigation.navigate('ConfirmPaymentReceived', {
+                  settlementId: item.settlementId,
+                })
+              }
+              style={({ pressed }) => [
+                styles.pendingBanner,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.pendingBannerLeft}>
+                <View style={styles.pendingPill}>
+                  <Text style={styles.pendingPillText}>CHỜ XÁC NHẬN</Text>
+                </View>
+                <Text style={styles.pendingBannerTitle} numberOfLines={2}>
+                  {`${item.fromName} vừa báo chuyển ${formatVnd(item.amountVnd)} trong ${item.groupName}`}
+                </Text>
+                <Text style={styles.pendingBannerSub}>
+                  Bấm để kiểm tra & xác nhận đã nhận tiền
+                </Text>
+              </View>
+              <IconChevron width={18} height={18} />
+            </Pressable>
+          ))}
 
           {offlineCount > 0 ? (
             <Pressable
@@ -474,5 +509,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     color: colors.purple,
+  },
+  pendingBanner: {
+    backgroundColor: colors.lime,
+    borderRadius: radii.card,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: colors.forest,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  pendingBannerLeft: {
+    flex: 1,
+    gap: 4,
+  },
+  pendingPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.forest,
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  pendingPillText: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    color: colors.lime,
+    letterSpacing: 0.4,
+  },
+  pendingBannerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.ink,
+  },
+  pendingBannerSub: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.forest,
   },
 });

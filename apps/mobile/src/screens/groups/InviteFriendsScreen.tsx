@@ -1,13 +1,15 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { GroupCategory } from '@chiane/shared';
 import * as Clipboard from 'expo-clipboard';
 import IconCopy from '../../../assets/figma/icon-copy.svg';
 import IconLink from '../../../assets/figma/icon-link.svg';
 import {
   AppHeader,
   ChiaNeButton,
+  ChiaNeChip,
   GROUP_CATEGORY_META,
   ScreenContainer,
   StateView,
@@ -19,6 +21,34 @@ import { useGroupsStore } from '../../store/groupsStore';
 import { colors, fonts, radii } from '../../theme/tokens';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'InviteFriends'>;
+
+type InviteTone = 'FRIENDLY' | 'TRAVEL' | 'OFFICE';
+
+const INVITE_TONE_OPTIONS: Array<{ key: InviteTone; label: string }> = [
+  { key: 'FRIENDLY', label: '🎉 Hội bạn' },
+  { key: 'TRAVEL', label: '✈️ Du lịch' },
+  { key: 'OFFICE', label: '🏠 Nhà chung / Team' },
+];
+
+function defaultToneForCategory(category?: GroupCategory): InviteTone {
+  if (category === 'TRAVEL') return 'TRAVEL';
+  if (category === 'HOUSEHOLD') return 'OFFICE';
+  return 'FRIENDLY';
+}
+
+function buildInviteMessage(
+  groupName: string,
+  inviteLink: string,
+  tone: InviteTone
+): string {
+  if (tone === 'TRAVEL') {
+    return `✈️ Cả nhà ơi, mình vừa tạo nhóm "${groupName}" trên ChiaNè để gom chung quỹ đi chơi & quét hóa đơn tự động!\n👉 Bấm vào link này để vào nhóm xem chi tiêu & chia tiền (không cần tải app vẫn xem được):\n${inviteLink}`;
+  }
+  if (tone === 'OFFICE') {
+    return `🏠 Chào mọi người, mình lập nhóm "${groupName}" trên ChiaNè để tổng kết các khoản chi chung minh bạch, thanh toán VietQR 1 chạm.\n👉 Tham gia nhóm qua liên kết này nhé:\n${inviteLink}`;
+  }
+  return `🎉 Ê mọi người ơi! Mình lập nhóm "${groupName}" trên ChiaNè để chia tiền ăn chơi cho sòng phẳng, khỏi sợ tính nhầm hay quên nợ nha!\n👉 Bấm vào đây để vào nhóm cùng mình (khách vào xem luôn không cần tải app):\n${inviteLink}`;
+}
 
 export function InviteFriendsScreen({ navigation, route }: Props) {
   const { groupId, fromCreate } = route.params;
@@ -32,15 +62,18 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
   const [copiedNotice, setCopiedNotice] = useState(false);
   const [copiedZaloNotice, setCopiedZaloNotice] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [inviteTone, setInviteTone] = useState<InviteTone>(() =>
+    defaultToneForCategory(cachedGroup?.category)
+  );
+  const [toneOverridden, setToneOverridden] = useState(false);
 
-  const getZaloInviteMessage = () => {
-    if (!group) return '';
-    return `👋 Ê mọi người ơi, mình lập nhóm "${group.name}" trên ChiaNè để chia tiền ăn chơi/du lịch cho rõ ràng, không lo tính nhầm!\n👉 Bấm vào liên kết này vào nhóm cùng mình nhé:\n${group.inviteLink}`;
-  };
+  const activeInviteMessage = group
+    ? buildInviteMessage(group.name, group.inviteLink, inviteTone)
+    : '';
 
   const handleCopyZaloMessage = async () => {
-    if (!group) return;
-    await Clipboard.setStringAsync(getZaloInviteMessage());
+    if (!activeInviteMessage) return;
+    await Clipboard.setStringAsync(activeInviteMessage);
     setCopiedZaloNotice(true);
     setTimeout(() => setCopiedZaloNotice(false), 2500);
   };
@@ -51,6 +84,9 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
     try {
       const detail = await fetchGroupDetail(groupId);
       setGroup(detail);
+      if (!toneOverridden) {
+        setInviteTone(defaultToneForCategory(detail.category));
+      }
     } catch (err) {
       setErrorText(
         err instanceof ApiClientError
@@ -60,7 +96,7 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [cachedGroup, fetchGroupDetail, groupId]);
+  }, [cachedGroup, fetchGroupDetail, groupId, toneOverridden]);
 
   useFocusEffect(
     useCallback(() => {
@@ -101,7 +137,7 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
   const handleShare = async () => {
     if (!group) return;
     await Share.share({
-      message: getZaloInviteMessage(),
+      message: activeInviteMessage,
       url: group.inviteLink,
     });
   };
@@ -119,7 +155,7 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
         group ? (
           <View style={styles.footerStack}>
             <ChiaNeButton
-              label="Chia sẻ liên kết mời"
+              label="Chia sẻ qua Zalo / Messenger"
               variant="primary"
               onPress={() => void handleShare()}
             />
@@ -196,13 +232,28 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
               >
                 <IconCopy width={14} height={14} />
                 <Text style={styles.zaloCopyText}>
-                  {copiedZaloNotice ? 'Đã sao chép!' : 'Sao chép'}
+                  {copiedZaloNotice ? 'Đã sao chép!' : 'Sao chép tin nhắn'}
                 </Text>
               </Pressable>
             </View>
-            <Text style={styles.zaloPreviewText} numberOfLines={4}>
-              {getZaloInviteMessage()}
-            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.zaloToneRow}
+            >
+              {INVITE_TONE_OPTIONS.map((opt) => (
+                <ChiaNeChip
+                  key={opt.key}
+                  label={opt.label}
+                  active={inviteTone === opt.key}
+                  onPress={() => {
+                    setInviteTone(opt.key);
+                    setToneOverridden(true);
+                  }}
+                />
+              ))}
+            </ScrollView>
+            <Text style={styles.zaloPreviewText}>{activeInviteMessage}</Text>
           </View>
 
           <Text style={styles.membersHeading}>THÀNH VIÊN · {group.memberCount}</Text>
@@ -306,11 +357,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
   },
   zaloTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 12,
     color: colors.ink,
+    flex: 1,
+  },
+  zaloToneRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
   },
   zaloCopyBtn: {
     flexDirection: 'row',

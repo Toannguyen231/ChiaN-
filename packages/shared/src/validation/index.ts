@@ -289,3 +289,20 @@ export const setPotCustodianSchema = z.object({
 });
 
 export type SetPotCustodianInput = z.infer<typeof setPotCustodianSchema>;
+
+export const registerPushTokenSchema = z.object({
+  expoPushToken: z
+    .string()
+    .trim()
+    .max(255)
+    .refine(
+      (val) =>
+        val.length === 0 ||
+        val.startsWith('ExponentPushToken[') ||
+        val.startsWith('ExpoPushToken['),
+      'Expo push token không hợp lệ'
+    )
+    .nullable(),
+});
+
+export type RegisterPushTokenInput = z.infer<typeof registerPushTokenSchema>;

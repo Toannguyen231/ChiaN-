@@ -2,26 +2,77 @@ export interface VnBankInfo {
   bin: string;
   shortName: string;
   name: string;
+  aliases: readonly string[];
 }
 
 export const VN_BANKS: readonly VnBankInfo[] = [
-  { bin: '970436', shortName: 'Vietcombank', name: 'Ngân hàng TMCP Ngoại thương Việt Nam' },
-  { bin: '970422', shortName: 'MB Bank', name: 'Ngân hàng TMCP Quân đội' },
-  { bin: '970407', shortName: 'Techcombank', name: 'Ngân hàng TMCP Kỹ thương Việt Nam' },
-  { bin: '970416', shortName: 'ACB', name: 'Ngân hàng TMCP Á Châu' },
-  { bin: '970418', shortName: 'BIDV', name: 'Ngân hàng TMCP Đầu tư và Phát triển VN' },
-  { bin: '970415', shortName: 'VietinBank', name: 'Ngân hàng TMCP Công thương Việt Nam' },
-  { bin: '970423', shortName: 'TPBank', name: 'Ngân hàng TMCP Tiên Phong' },
-  { bin: '970432', shortName: 'VPBank', name: 'Ngân hàng TMCP Việt Nam Thịnh Vượng' },
-  { bin: '970403', shortName: 'Sacombank', name: 'Ngân hàng TMCP Sài Gòn Thương Tín' },
-  { bin: '970441', shortName: 'VIB', name: 'Ngân hàng TMCP Quốc tế Việt Nam' },
-  { bin: '970405', shortName: 'Agribank', name: 'Ngân hàng Nông nghiệp & PTNT Việt Nam' },
-  { bin: '970448', shortName: 'OCB', name: 'Ngân hàng TMCP Phương Đông' },
-  { bin: '970426', shortName: 'MSB', name: 'Ngân hàng TMCP Hàng Hải Việt Nam' },
-  { bin: '970437', shortName: 'HDBank', name: 'Ngân hàng TMCP Phát triển TP.HCM' },
-  { bin: '970409', shortName: 'BacABank', name: 'Ngân hàng TMCP Bắc Á' },
-  { bin: '970431', shortName: 'Eximbank', name: 'Ngân hàng TMCP Xuất Nhập Khẩu VN' },
+  { bin: '970436', shortName: 'Vietcombank', name: 'Ngân hàng TMCP Ngoại thương Việt Nam', aliases: ['VCB', 'Ngoai thuong'] },
+  { bin: '970422', shortName: 'MB Bank', name: 'Ngân hàng TMCP Quân đội', aliases: ['MB', 'MBB', 'MBBank', 'Quan doi'] },
+  { bin: '970407', shortName: 'Techcombank', name: 'Ngân hàng TMCP Kỹ thương Việt Nam', aliases: ['TCB', 'Techcom', 'Ky thuong'] },
+  { bin: '970416', shortName: 'ACB', name: 'Ngân hàng TMCP Á Châu', aliases: ['ACB', 'A Chau'] },
+  { bin: '970418', shortName: 'BIDV', name: 'Ngân hàng TMCP Đầu tư và Phát triển VN', aliases: ['BIDV', 'BID', 'Dau tu'] },
+  { bin: '970415', shortName: 'VietinBank', name: 'Ngân hàng TMCP Công thương Việt Nam', aliases: ['VTB', 'CTG', 'Vietin', 'Cong thuong'] },
+  { bin: '970423', shortName: 'TPBank', name: 'Ngân hàng TMCP Tiên Phong', aliases: ['TPB', 'Tien Phong'] },
+  { bin: '970432', shortName: 'VPBank', name: 'Ngân hàng TMCP Việt Nam Thịnh Vượng', aliases: ['VPB', 'Thinh Vuong'] },
+  { bin: '970403', shortName: 'Sacombank', name: 'Ngân hàng TMCP Sài Gòn Thương Tín', aliases: ['STB', 'Sacom', 'Sai Gon Thuong Tin'] },
+  { bin: '970441', shortName: 'VIB', name: 'Ngân hàng TMCP Quốc tế Việt Nam', aliases: ['VIB', 'Quoc te'] },
+  { bin: '970405', shortName: 'Agribank', name: 'Ngân hàng Nông nghiệp & PTNT Việt Nam', aliases: ['AGRI', 'VBA', 'Nong nghiep'] },
+  { bin: '970448', shortName: 'OCB', name: 'Ngân hàng TMCP Phương Đông', aliases: ['OCB', 'Phuong Dong'] },
+  { bin: '970426', shortName: 'MSB', name: 'Ngân hàng TMCP Hàng Hải Việt Nam', aliases: ['MSB', 'Maritime', 'Hang Hai'] },
+  { bin: '970437', shortName: 'HDBank', name: 'Ngân hàng TMCP Phát triển TP.HCM', aliases: ['HDB', 'Phat trien'] },
+  { bin: '970409', shortName: 'BacABank', name: 'Ngân hàng TMCP Bắc Á', aliases: ['BAB', 'NASB', 'Bac A'] },
+  { bin: '970431', shortName: 'Eximbank', name: 'Ngân hàng TMCP Xuất Nhập Khẩu VN', aliases: ['EIB', 'Exim', 'Xuat Nhap Khau'] },
 ] as const;
+
+function stripSearchAccents(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
+/**
+ * Search Vietnamese banks by abbreviation/alias (e.g. VCB, TCB, MB), short name, full name, or BIN,
+ * ranking exact and prefix alias matches ahead of substring matches.
+ */
+export function searchVnBanks(query: string): VnBankInfo[] {
+  const q = stripSearchAccents(query.trim());
+  if (!q) return [...VN_BANKS];
+
+  const ranked: Array<{ bank: VnBankInfo; rank: number }> = [];
+  for (const bank of VN_BANKS) {
+    const shortLower = stripSearchAccents(bank.shortName);
+    const nameLower = stripSearchAccents(bank.name);
+    const aliasesLower = bank.aliases.map((a) => stripSearchAccents(a));
+
+    let rank: number | null = null;
+    if (aliasesLower.some((a) => a === q)) {
+      rank = 0;
+    } else if (shortLower === q) {
+      rank = 1;
+    } else if (aliasesLower.some((a) => a.startsWith(q))) {
+      rank = 2;
+    } else if (shortLower.startsWith(q)) {
+      rank = 3;
+    } else if (
+      aliasesLower.some((a) => a.includes(q)) ||
+      shortLower.includes(q) ||
+      nameLower.includes(q) ||
+      bank.bin.includes(q)
+    ) {
+      rank = 4;
+    }
+
+    if (rank !== null) {
+      ranked.push({ bank, rank });
+    }
+  }
+
+  ranked.sort((a, b) => a.rank - b.rank);
+  return ranked.map((entry) => entry.bank);
+}
 
 export function maskBankAccount(accountNumber?: string | null): string | null {
   const clean = accountNumber?.trim() ?? '';

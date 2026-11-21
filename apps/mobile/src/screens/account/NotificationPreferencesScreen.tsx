@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   AppHeader,
@@ -28,6 +28,39 @@ export function NotificationPreferencesScreen({ navigation }: Props) {
   const [saving, setSaving] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [hasPushToken, setHasPushToken] = useState<boolean | null>(null);
+  const [pushActionBusy, setPushActionBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    authApi
+      .getPushTokenStatus()
+      .then((res) => {
+        if (active) setHasPushToken(res.registered);
+      })
+      .catch(() => {
+        if (active) setHasPushToken(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleClearPushToken = async () => {
+    setPushActionBusy(true);
+    try {
+      await authApi.registerPushToken(null);
+      setHasPushToken(false);
+    } catch (err) {
+      setErrorText(
+        err instanceof ApiClientError
+          ? err.message
+          : 'Không thể cập nhật trạng thái Push Notification.'
+      );
+    } finally {
+      setPushActionBusy(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -119,6 +152,46 @@ export function NotificationPreferencesScreen({ navigation }: Props) {
           </View>
         </View>
 
+        <View style={styles.pushCard}>
+          <View style={styles.pushHeaderRow}>
+            <Text style={styles.rowTitle}>Thông báo đẩy (Push Notification)</Text>
+            <View
+              style={[
+                styles.pushBadge,
+                hasPushToken ? styles.pushBadgeActive : styles.pushBadgeIdle,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.pushBadgeText,
+                  hasPushToken ? styles.pushBadgeTextActive : styles.pushBadgeTextIdle,
+                ]}
+              >
+                {hasPushToken === null
+                  ? 'Đang kiểm tra...'
+                  : hasPushToken
+                    ? 'Đã kết nối thiết bị'
+                    : 'Sẵn sàng (chờ EAS build)'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.rowSub}>
+            Backend đã kích hoạt Expo Push API cho chi tiêu mới, xác nhận chuyển khoản và nhắc nhẹ. Thông báo đẩy nền sẽ tự động đăng ký token thiết bị trên bản cài đặt .apk / TestFlight (EAS Build + FCM/APNs).
+          </Text>
+          {hasPushToken ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={pushActionBusy}
+              onPress={() => void handleClearPushToken()}
+              style={styles.clearPushBtn}
+            >
+              <Text style={styles.clearPushBtnText}>
+                {pushActionBusy ? 'Đang gỡ...' : 'Hủy đăng ký thiết bị này'}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+
         <InfoCard tone="lavender">
           <Text style={styles.noteText}>
             ChiaNè luôn giữ giới hạn tối đa 1 lời nhắc / người / 24 giờ để không làm phiền bạn bè.
@@ -182,5 +255,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: colors.purple,
+  },
+  pushCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  pushHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  pushBadge: {
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  pushBadgeActive: {
+    backgroundColor: colors.lime,
+  },
+  pushBadgeIdle: {
+    backgroundColor: colors.paper,
+  },
+  pushBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+  },
+  pushBadgeTextActive: {
+    color: colors.forest,
+  },
+  pushBadgeTextIdle: {
+    color: colors.muted,
+  },
+  clearPushBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+  },
+  clearPushBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.coral,
   },
 });

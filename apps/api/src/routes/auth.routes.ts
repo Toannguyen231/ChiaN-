@@ -5,6 +5,7 @@ import {
   changePhoneVerifySchema,
   logoutSchema,
   refreshTokenSchema,
+  registerPushTokenSchema,
   requestOtpSchema,
   updateProfileSchema,
   verifyOtpSchema,
@@ -165,6 +166,39 @@ export async function registerAuthRoutes(
     return reply.status(200).send({
       user: serializeUserProfile(updated),
       ...tokens,
+    });
+  });
+
+  app.get('/api/v1/auth/me/push-token', { preHandler: requireAuth }, async (request, reply) => {
+    const userId = request.authUser!.userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { expoPushToken: true },
+    });
+    if (!user) {
+      throw new AppError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản.');
+    }
+
+    return reply.status(200).send({
+      registered: Boolean(user.expoPushToken),
+      expoPushToken: user.expoPushToken ?? null,
+    });
+  });
+
+  app.post('/api/v1/auth/me/push-token', { preHandler: requireAuth }, async (request, reply) => {
+    const userId = request.authUser!.userId;
+    const input = registerPushTokenSchema.parse(request.body);
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        expoPushToken: input.expoPushToken && input.expoPushToken.length > 0 ? input.expoPushToken : null,
+      },
+      select: { expoPushToken: true },
+    });
+
+    return reply.status(200).send({
+      registered: Boolean(updated.expoPushToken),
+      expoPushToken: updated.expoPushToken ?? null,
     });
   });
 }

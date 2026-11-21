@@ -78,4 +78,24 @@ export const authApi = {
       authenticated: true,
     });
   },
+
+  getPushTokenStatus(): Promise<{ registered: boolean; expoPushToken: string | null }> {
+    return apiRequest<{ registered: boolean; expoPushToken: string | null }>(
+      '/api/v1/auth/me/push-token',
+      { authenticated: true }
+    );
+  },
+
+  registerPushToken(
+    expoPushToken: string | null
+  ): Promise<{ registered: boolean; expoPushToken: string | null }> {
+    return apiRequest<{ registered: boolean; expoPushToken: string | null }>(
+      '/api/v1/auth/me/push-token',
+      {
+        method: 'POST',
+        body: { expoPushToken },
+        authenticated: true,
+      }
+    );
+  },
 };
