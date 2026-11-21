@@ -1,7 +1,10 @@
 import {
   contributePotSchema,
   formatVnd,
+  setPotCustodianSchema,
+  type BankAccountPreviewDto,
   type GroupPotContributionDto,
+  type GroupPotCustodianDto,
   type GroupPotDto,
   type GroupPotMemberSummaryDto,
 } from '@chiane/shared';
@@ -9,7 +12,10 @@ import type { PrismaClient } from '@prisma/client';
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
 import { createRequireGroupRole } from '../middleware/rbac';
 import { logActivity } from '../services/activity.service';
-import { assertNotArchived } from '../services/balance.service';
+import {
+  assertNotArchived,
+  buildBankPreview,
+} from '../services/balance.service';
 import { AppError } from '../utils/errors';
 
 export interface PotRoutesDeps {
@@ -22,10 +28,26 @@ export async function buildGroupPotDto(
   groupId: string,
   myMemberId: string
 ): Promise<GroupPotDto> {
-  const [activeMembers, contributions, potExpenses] = await Promise.all([
+  const [group, activeMembers, contributions, potExpenses] = await Promise.all([
+    prisma.group.findUnique({
+      where: { id: groupId },
+      select: { potCustodianMemberId: true },
+    }),
     prisma.groupMember.findMany({
       where: { groupId, status: 'ACTIVE' },
-      select: { id: true, displayName: true },
+      select: {
+        id: true,
+        displayName: true,
+        role: true,
+        user: {
+          select: {
+            bankBin: true,
+            bankName: true,
+            bankAccountNumber: true,
+            bankAccountHolder: true,
+          },
+        },
+      },
       orderBy: { joinedAt: 'asc' },
     }),
     prisma.groupPotContribution.findMany({
@@ -52,11 +74,13 @@ export async function buildGroupPotDto(
   ]);
 
   const memberNameMap = new Map<string, string>();
+  const bankPreviewMap = new Map<string, BankAccountPreviewDto>();
   const contributedByMember = new Map<string, number>();
   const consumedByMember = new Map<string, number>();
 
   for (const m of activeMembers) {
     memberNameMap.set(m.id, m.displayName);
+    bankPreviewMap.set(m.id, buildBankPreview(m.user));
     contributedByMember.set(m.id, 0);
     consumedByMember.set(m.id, 0);
   }
@@ -105,14 +129,33 @@ export async function buildGroupPotDto(
       memberId,
       displayName,
       isMe: memberId === myMemberId,
+      bankPreview: bankPreviewMap.get(memberId) ?? null,
       contributedVnd,
       consumedFromPotVnd,
       netRefundVnd: contributedVnd - consumedFromPotVnd,
     };
   });
 
+  const custodianMember =
+    (group?.potCustodianMemberId
+      ? activeMembers.find((m) => m.id === group.potCustodianMemberId)
+      : undefined) ??
+    activeMembers.find((m) => m.role === 'ADMIN') ??
+    activeMembers[0] ??
+    null;
+
+  const custodian: GroupPotCustodianDto | null = custodianMember
+    ? {
+        memberId: custodianMember.id,
+        displayName: custodianMember.displayName,
+        isMe: custodianMember.id === myMemberId,
+        bankPreview: bankPreviewMap.get(custodianMember.id) ?? buildBankPreview(null),
+      }
+    : null;
+
   return {
     groupId,
+    custodian,
     totalContributedVnd,
     totalSpentFromPotVnd,
     remainingPotVnd: totalContributedVnd - totalSpentFromPotVnd,
@@ -228,6 +271,46 @@ export async function registerPotRoutes(
         },
         pot,
       });
+    }
+  );
+
+  app.patch(
+    '/api/v1/groups/:groupId/pot/custodian',
+    {
+      preHandler: [
+        requireAuthOrGuest,
+        createRequireGroupRole(prisma, ['ADMIN', 'MEMBER']),
+      ],
+    },
+    async (request, reply) => {
+      const membership = request.groupMembership!;
+      await assertNotArchived(prisma, membership.groupId);
+
+      const input = setPotCustodianSchema.parse(request.body);
+      const targetMember = await prisma.groupMember.findFirst({
+        where: {
+          id: input.custodianMemberId,
+          groupId: membership.groupId,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+
+      if (!targetMember) {
+        throw new AppError(
+          400,
+          'INVALID_MEMBER',
+          'Thành viên được chọn làm Thủ quỹ phải đang hoạt động trong nhóm.'
+        );
+      }
+
+      await prisma.group.update({
+        where: { id: membership.groupId },
+        data: { potCustodianMemberId: targetMember.id },
+      });
+
+      const pot = await buildGroupPotDto(prisma, membership.groupId, membership.memberId);
+      return reply.status(200).send(pot);
     }
   );
 }

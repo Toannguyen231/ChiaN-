@@ -358,10 +358,18 @@ export interface GroupPotContributionDto {
   createdAt: string;
 }
 
+export interface GroupPotCustodianDto {
+  memberId: string;
+  displayName: string;
+  isMe: boolean;
+  bankPreview: BankAccountPreviewDto;
+}
+
 export interface GroupPotMemberSummaryDto {
   memberId: string;
   displayName: string;
   isMe: boolean;
+  bankPreview: BankAccountPreviewDto | null;
   contributedVnd: number;
   consumedFromPotVnd: number;
   netRefundVnd: number;
@@ -369,6 +377,7 @@ export interface GroupPotMemberSummaryDto {
 
 export interface GroupPotDto {
   groupId: string;
+  custodian: GroupPotCustodianDto | null;
   totalContributedVnd: number;
   totalSpentFromPotVnd: number;
   remainingPotVnd: number;

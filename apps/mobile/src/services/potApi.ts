@@ -18,4 +18,12 @@ export const potApi = {
       authenticated: true,
     });
   },
+
+  setCustodian(groupId: string, custodianMemberId: string): Promise<GroupPotDto> {
+    return apiRequest<GroupPotDto>(`/api/v1/groups/${groupId}/pot/custodian`, {
+      method: 'PATCH',
+      body: { custodianMemberId },
+      authenticated: true,
+    });
+  },
 };

@@ -10,11 +10,14 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as Clipboard from 'expo-clipboard';
 import {
+  buildVietQrPayload,
   formatVnd,
   parseVndInput,
   type ExpenseDto,
   type GroupPotDto,
+  type GroupPotMemberSummaryDto,
   type SettlementDto,
 } from '@chiane/shared';
 import IconChevron from '../../../assets/figma/icon-chevron.svg';
@@ -33,6 +36,7 @@ import {
   LuckyWheelModal,
   ScreenContainer,
   StateView,
+  VietQrMatrix,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
 import { ApiClientError } from '../../services/apiClient';
@@ -87,6 +91,11 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
   const [potNote, setPotNote] = useState('');
   const [potError, setPotError] = useState<string | null>(null);
   const [potSubmitting, setPotSubmitting] = useState(false);
+  const [potPayMethod, setPotPayMethod] = useState<'BANK_TRANSFER' | 'CASH'>('BANK_TRANSFER');
+  const [custodianPickerOpen, setCustodianPickerOpen] = useState(false);
+  const [updatingCustodian, setUpdatingCustodian] = useState(false);
+  const [copiedQrNotice, setCopiedQrNotice] = useState<string | null>(null);
+  const [refundQrTarget, setRefundQrTarget] = useState<GroupPotMemberSummaryDto | null>(null);
 
   const loadGroup = useCallback(
     async (isRefresh = false) => {
@@ -181,7 +190,35 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
     setPotAmountVnd(500_000);
     setPotNote('');
     setPotError(null);
+    setPotPayMethod('BANK_TRANSFER');
+    setCustodianPickerOpen(false);
+    setCopiedQrNotice(null);
     setPotContributeOpen(true);
+  };
+
+  const copyQrValue = async (label: string, value: string) => {
+    await Clipboard.setStringAsync(value);
+    setCopiedQrNotice(`Đã sao chép ${label}!`);
+    setTimeout(() => setCopiedQrNotice(null), 2200);
+  };
+
+  const handleChangeCustodian = async (memberId: string) => {
+    if (!group || updatingCustodian) return;
+    setUpdatingCustodian(true);
+    setPotError(null);
+    try {
+      const nextPot = await potApi.setCustodian(group.id, memberId);
+      setPot(nextPot);
+      setCustodianPickerOpen(false);
+    } catch (err) {
+      setPotError(
+        err instanceof ApiClientError
+          ? err.message
+          : 'Không thể cập nhật Thủ quỹ lúc này.'
+      );
+    } finally {
+      setUpdatingCustodian(false);
+    }
   };
 
   const handleContributePotSubmit = async () => {
@@ -197,10 +234,15 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
         group.myRole === 'GUEST'
           ? group.myMemberId
           : potMemberId || group.myMemberId;
+      const defaultNote =
+        potPayMethod === 'BANK_TRANSFER'
+          ? 'Chuyển khoản VietQR cho Thủ quỹ'
+          : 'Nộp tiền mặt cho Thủ quỹ';
+      const finalNote = potNote.trim() || defaultNote;
       const res = await potApi.contribute(group.id, {
         memberId: targetMemberId,
         amountVnd: potAmountVnd,
-        ...(potNote.trim() ? { note: potNote.trim() } : {}),
+        note: finalNote,
       });
       setPot(res.pot);
       setPotContributeOpen(false);
@@ -256,6 +298,33 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
     </View>
   ) : null;
 
+  const custodian = pot?.custodian ?? null;
+  const contributorName =
+    group?.members.find((m) => m.id === (potMemberId || group.myMemberId))
+      ?.displayName ?? 'THANH VIEN';
+  const potContributeMemo = `CHIANE GOP QUY ${contributorName}`;
+  const potVietQrPayload = custodian?.bankPreview.hasRealBank
+    ? buildVietQrPayload({
+        bankBin: custodian.bankPreview.bankBin,
+        accountNumber: custodian.bankPreview.bankAccountNumber,
+        amountVnd: potAmountVnd > 0 ? potAmountVnd : undefined,
+        memo: potContributeMemo,
+      })
+    : null;
+
+  const refundMemo = refundQrTarget
+    ? `CHIANE HOAN QUY ${refundQrTarget.displayName}`
+    : '';
+  const refundVietQrPayload =
+    refundQrTarget && refundQrTarget.bankPreview?.hasRealBank
+      ? buildVietQrPayload({
+          bankBin: refundQrTarget.bankPreview.bankBin,
+          accountNumber: refundQrTarget.bankPreview.bankAccountNumber,
+          amountVnd: refundQrTarget.netRefundVnd > 0 ? refundQrTarget.netRefundVnd : undefined,
+          memo: refundMemo,
+        })
+      : null;
+
   const potSummaryCard = group ? (
     hasPotActivity && pot ? (
       <View style={styles.potCard}>
@@ -283,6 +352,15 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
             </Pressable>
           ) : null}
         </View>
+        {custodian ? (
+          <Text style={styles.potCustodianLine} numberOfLines={1}>
+            {`🏦 Thủ quỹ giữ tiền: ${custodian.displayName}${
+              custodian.bankPreview.bankName
+                ? ` (${custodian.bankPreview.bankName})`
+                : ''
+            }`}
+          </Text>
+        ) : null}
         <View style={styles.potProgressTrack}>
           <View
             style={[
@@ -313,7 +391,9 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
         <View style={styles.potTitleCol}>
           <Text style={styles.potTitle}>🐷 Quỹ chung nhóm (Heo đất)</Text>
           <Text style={styles.potMetaText}>
-            Góp trước đầu chuyến, chi tới đâu trừ quỹ tới đó.
+            {custodian
+              ? `Góp trước vào TK Thủ quỹ (${custodian.displayName}), chi tới đâu trừ tới đó.`
+              : 'Góp trước đầu chuyến, chi tới đâu trừ quỹ tới đó.'}
           </Text>
         </View>
         {!group.isArchived ? (
@@ -772,85 +852,229 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
           style={styles.modalBackdrop}
           onPress={potSubmitting ? undefined : () => setPotContributeOpen(false)}
         >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+          <Pressable
+            style={[styles.modalCard, styles.potContributeModalCard]}
+            onPress={(e) => e.stopPropagation()}
+          >
             <Text style={styles.modalTitle}>🐷 Góp quỹ chung nhóm</Text>
-            <Text style={styles.modalDesc}>
-              Ghi nhận tiền mọi người đóng trước vào quỹ chung (Heo đất).
-            </Text>
-
-            {group ? (
-              group.myRole === 'GUEST' ? (
-                <View style={styles.potGuestBox}>
-                  <Text style={styles.potGuestText}>
-                    Người đóng góp: {group.members.find((m) => m.id === group.myMemberId)?.displayName ?? 'Bạn'}
-                  </Text>
+            <ScrollView
+              style={styles.potContributeScroll}
+              contentContainerStyle={styles.potContributeScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Custodian Banner & Switcher */}
+              <View style={styles.custodianBox}>
+                <View style={styles.custodianHeaderRow}>
+                  <View style={styles.custodianTextCol}>
+                    <Text style={styles.custodianEyebrow}>🏦 THỦ QUỸ GIỮ TIỀN</Text>
+                    <Text style={styles.custodianName}>
+                      {custodian
+                        ? `${custodian.displayName}${custodian.isMe ? ' (bạn)' : ''}`
+                        : 'Trưởng nhóm'}
+                    </Text>
+                    {custodian?.bankPreview.hasRealBank ? (
+                      <Text style={styles.custodianBankSub}>
+                        {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.maskedAccountNumber ?? custodian.bankPreview.bankAccountNumber}`}
+                      </Text>
+                    ) : (
+                      <Text style={styles.custodianNoBankSub}>
+                        Chưa liên kết tài khoản ngân hàng
+                      </Text>
+                    )}
+                  </View>
+                  {group && group.myRole !== 'GUEST' && !group.isArchived ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setCustodianPickerOpen((prev) => !prev)}
+                      style={({ pressed }) => [styles.changeCustodianBtn, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.changeCustodianBtnText}>
+                        {custodianPickerOpen ? 'Đóng' : 'Đổi Thủ quỹ'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
                 </View>
-              ) : (
-                <View style={styles.potMemberPicker}>
-                  <Text style={styles.potFieldLabel}>Người góp quỹ</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.potChipRow}
-                  >
-                    {group.members.map((m) => (
-                      <ChiaNeChip
-                        key={m.id}
-                        label={`${m.displayName}${m.isMe ? ' (bạn)' : ''}`}
-                        active={(potMemberId || group.myMemberId) === m.id}
-                        onPress={() => setPotMemberId(m.id)}
+
+                {custodianPickerOpen && group ? (
+                  <View style={styles.custodianPickerWrap}>
+                    <Text style={styles.potFieldLabel}>
+                      {updatingCustodian ? 'Đang cập nhật Thủ quỹ...' : 'Chọn thành viên giữ quỹ:'}
+                    </Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.potChipRow}
+                    >
+                      {group.members.map((m) => (
+                        <ChiaNeChip
+                          key={m.id}
+                          label={`${m.displayName}${m.bankPreview?.hasRealBank ? ' 🏦' : ''}`}
+                          active={custodian?.memberId === m.id}
+                          onPress={() => void handleChangeCustodian(m.id)}
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Contributor Picker */}
+              {group ? (
+                group.myRole === 'GUEST' ? (
+                  <View style={styles.potGuestBox}>
+                    <Text style={styles.potGuestText}>
+                      Người góp quỹ: {group.members.find((m) => m.id === group.myMemberId)?.displayName ?? 'Bạn'}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.potMemberPicker}>
+                    <Text style={styles.potFieldLabel}>Người góp quỹ</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.potChipRow}
+                    >
+                      {group.members.map((m) => (
+                        <ChiaNeChip
+                          key={m.id}
+                          label={`${m.displayName}${m.isMe ? ' (bạn)' : ''}`}
+                          active={(potMemberId || group.myMemberId) === m.id}
+                          onPress={() => setPotMemberId(m.id)}
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )
+              ) : null}
+
+              <ChiaNeInput
+                label="Số tiền góp (₫)"
+                value={
+                  potAmountVnd > 0
+                    ? formatVnd(potAmountVnd, { includeSymbol: false })
+                    : ''
+                }
+                onChangeText={(raw) => {
+                  setPotAmountVnd(parseVndInput(raw));
+                  if (potError) setPotError(null);
+                }}
+                keyboardType="number-pad"
+                placeholder="500.000"
+                errorText={potError}
+              />
+
+              <View style={styles.potPresetRow}>
+                {[
+                  { label: '200k', value: 200_000 },
+                  { label: '500k', value: 500_000 },
+                  { label: '1 triệu', value: 1_000_000 },
+                ].map((preset) => (
+                  <ChiaNeChip
+                    key={preset.value}
+                    label={preset.label}
+                    active={potAmountVnd === preset.value}
+                    onPress={() => {
+                      setPotAmountVnd(preset.value);
+                      if (potError) setPotError(null);
+                    }}
+                  />
+                ))}
+              </View>
+
+              {/* Payment method tabs */}
+              <View style={styles.potMemberPicker}>
+                <Text style={styles.potFieldLabel}>Hình thức góp tiền</Text>
+                <View style={styles.potPresetRow}>
+                  <ChiaNeChip
+                    label="🏦 Chuyển khoản VietQR"
+                    active={potPayMethod === 'BANK_TRANSFER'}
+                    onPress={() => setPotPayMethod('BANK_TRANSFER')}
+                  />
+                  <ChiaNeChip
+                    label="💵 Tiền mặt"
+                    active={potPayMethod === 'CASH'}
+                    onPress={() => setPotPayMethod('CASH')}
+                  />
+                </View>
+              </View>
+
+              {potPayMethod === 'BANK_TRANSFER' ? (
+                custodian?.bankPreview.hasRealBank && potVietQrPayload ? (
+                  <View style={styles.qrTransferCard}>
+                    <VietQrMatrix payload={potVietQrPayload} size={172} />
+                    <View style={styles.qrBankInfoBox}>
+                      <Text style={styles.qrBankName}>
+                        {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.bankAccountNumber}`}
+                      </Text>
+                      {custodian.bankPreview.bankAccountHolder ? (
+                        <Text style={styles.qrHolderName}>
+                          {custodian.bankPreview.bankAccountHolder}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.qrMemoText} numberOfLines={1}>
+                        {`Nội dung: ${potContributeMemo}`}
+                      </Text>
+                    </View>
+                    <View style={styles.qrCopyRow}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() =>
+                          void copyQrValue(
+                            'STK',
+                            custodian.bankPreview.bankAccountNumber ?? ''
+                          )
+                        }
+                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.qrCopyBtnText}>📋 Chép STK</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void copyQrValue('nội dung CK', potContributeMemo)}
+                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.qrCopyBtnText}>📋 Chép nội dung</Text>
+                      </Pressable>
+                    </View>
+                    {copiedQrNotice ? (
+                      <Text style={styles.copiedQrToast}>{copiedQrNotice}</Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={styles.noBankCallout}>
+                    <Text style={styles.noBankCalloutText}>
+                      {`Thủ quỹ (${custodian?.displayName ?? 'Trưởng nhóm'}) chưa cài tài khoản ngân hàng — bạn có thể chuyển sang Tiền mặt hoặc nhắc Thủ quỹ cập nhật STK.`}
+                    </Text>
+                    {custodian?.isMe && group?.myRole !== 'GUEST' ? (
+                      <ChiaNeButton
+                        label="🏦 Cài tài khoản ngân hàng ngay"
+                        variant="secondary"
+                        onPress={() => {
+                          setPotContributeOpen(false);
+                          navigation.navigate('BankAccount');
+                        }}
                       />
-                    ))}
-                  </ScrollView>
-                </View>
-              )
-            ) : null}
+                    ) : null}
+                  </View>
+                )
+              ) : null}
 
-            <ChiaNeInput
-              label="Số tiền góp (₫)"
-              value={
-                potAmountVnd > 0
-                  ? formatVnd(potAmountVnd, { includeSymbol: false })
-                  : ''
-              }
-              onChangeText={(raw) => {
-                setPotAmountVnd(parseVndInput(raw));
-                if (potError) setPotError(null);
-              }}
-              keyboardType="number-pad"
-              placeholder="500.000"
-              errorText={potError}
-            />
-
-            <View style={styles.potPresetRow}>
-              {[
-                { label: '200k', value: 200_000 },
-                { label: '500k', value: 500_000 },
-                { label: '1 triệu', value: 1_000_000 },
-              ].map((preset) => (
-                <ChiaNeChip
-                  key={preset.value}
-                  label={preset.label}
-                  active={potAmountVnd === preset.value}
-                  onPress={() => {
-                    setPotAmountVnd(preset.value);
-                    if (potError) setPotError(null);
-                  }}
-                />
-              ))}
-            </View>
-
-            <ChiaNeInput
-              label="Ghi chú (không bắt buộc)"
-              value={potNote}
-              onChangeText={setPotNote}
-              placeholder="Ví dụ: Góp quỹ đợt 1 đi Đà Lạt"
-              maxLength={200}
-            />
+              <ChiaNeInput
+                label="Ghi chú (không bắt buộc)"
+                value={potNote}
+                onChangeText={setPotNote}
+                placeholder="Ví dụ: Góp quỹ đợt 1 đi Đà Lạt"
+                maxLength={200}
+              />
+            </ScrollView>
 
             <View style={styles.modalActions}>
               <ChiaNeButton
-                label="Ghi nhận góp quỹ"
+                label={
+                  potPayMethod === 'BANK_TRANSFER'
+                    ? '✅ Đã chuyển & Ghi nhận góp quỹ'
+                    : '💵 Ghi nhận góp tiền mặt'
+                }
                 variant="primary"
                 loading={potSubmitting}
                 onPress={() => void handleContributePotSubmit()}
@@ -888,6 +1112,61 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                 contentContainerStyle={styles.potDetailScrollContent}
                 showsVerticalScrollIndicator={false}
               >
+                <View style={styles.custodianBox}>
+                  <View style={styles.custodianHeaderRow}>
+                    <View style={styles.custodianTextCol}>
+                      <Text style={styles.custodianEyebrow}>🏦 THỦ QUỸ GIỮ TIỀN</Text>
+                      <Text style={styles.custodianName}>
+                        {custodian
+                          ? `${custodian.displayName}${custodian.isMe ? ' (bạn)' : ''}`
+                          : 'Trưởng nhóm'}
+                      </Text>
+                      {custodian?.bankPreview.hasRealBank ? (
+                        <Text style={styles.custodianBankSub}>
+                          {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.bankAccountNumber}`}
+                        </Text>
+                      ) : (
+                        <Text style={styles.custodianNoBankSub}>
+                          Chưa liên kết tài khoản ngân hàng
+                        </Text>
+                      )}
+                    </View>
+                    {group && group.myRole !== 'GUEST' && !group.isArchived ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setCustodianPickerOpen((prev) => !prev)}
+                        style={({ pressed }) => [styles.changeCustodianBtn, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.changeCustodianBtnText}>
+                          {custodianPickerOpen ? 'Đóng' : 'Đổi Thủ quỹ'}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  {custodianPickerOpen && group ? (
+                    <View style={styles.custodianPickerWrap}>
+                      <Text style={styles.potFieldLabel}>
+                        {updatingCustodian ? 'Đang cập nhật...' : 'Chọn thành viên giữ quỹ:'}
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.potChipRow}
+                      >
+                        {group.members.map((m) => (
+                          <ChiaNeChip
+                            key={m.id}
+                            label={`${m.displayName}${m.bankPreview?.hasRealBank ? ' 🏦' : ''}`}
+                            active={custodian?.memberId === m.id}
+                            onPress={() => void handleChangeCustodian(m.id)}
+                          />
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                </View>
+
                 <View style={styles.potStatsBar}>
                   <View style={styles.potStatItem}>
                     <Text style={styles.potStatLabel}>Đã góp</Text>
@@ -938,9 +1217,24 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                             )}`}
                           </Text>
                         </View>
-                        <Text style={[styles.potRefundVal, { color: refundColor }]}>
-                          {formatVnd(s.netRefundVnd, { showSign: true })}
-                        </Text>
+                        <View style={styles.potRefundRightCol}>
+                          <Text style={[styles.potRefundVal, { color: refundColor }]}>
+                            {formatVnd(s.netRefundVnd, { showSign: true })}
+                          </Text>
+                          {s.netRefundVnd > 0 ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() => {
+                                setCopiedQrNotice(null);
+                                setPotDetailOpen(false);
+                                setRefundQrTarget(s);
+                              }}
+                              style={({ pressed }) => [styles.refundQrPill, pressed && styles.pressed]}
+                            >
+                              <Text style={styles.refundQrPillText}>📲 QR Hoàn tiền</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
                       </View>
                     );
                   })}
@@ -996,6 +1290,97 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                 onPress={() => setPotDetailOpen(false)}
               />
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Refund VietQR Modal ("QR Hoàn quỹ thừa") */}
+      <Modal
+        visible={refundQrTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRefundQrTarget(null)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setRefundQrTarget(null)}
+        >
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            {refundQrTarget ? (
+              <>
+                <Text style={styles.modalTitle}>
+                  {`📲 Hoàn quỹ thừa cho ${refundQrTarget.displayName}`}
+                </Text>
+                <Text style={styles.refundHeroAmount}>
+                  {formatVnd(refundQrTarget.netRefundVnd)}
+                </Text>
+
+                {refundQrTarget.bankPreview?.hasRealBank && refundVietQrPayload ? (
+                  <View style={styles.qrTransferCard}>
+                    <VietQrMatrix payload={refundVietQrPayload} size={196} />
+                    <View style={styles.qrBankInfoBox}>
+                      <Text style={styles.qrBankName}>
+                        {`${refundQrTarget.bankPreview.bankName} · ${refundQrTarget.bankPreview.bankAccountNumber}`}
+                      </Text>
+                      {refundQrTarget.bankPreview.bankAccountHolder ? (
+                        <Text style={styles.qrHolderName}>
+                          {refundQrTarget.bankPreview.bankAccountHolder}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.qrMemoText} numberOfLines={1}>
+                        {`Nội dung: ${refundMemo}`}
+                      </Text>
+                    </View>
+                    <View style={styles.qrCopyRow}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() =>
+                          void copyQrValue(
+                            'STK',
+                            refundQrTarget.bankPreview?.bankAccountNumber ?? ''
+                          )
+                        }
+                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.qrCopyBtnText}>📋 Chép STK</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void copyQrValue('nội dung CK', refundMemo)}
+                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.qrCopyBtnText}>📋 Chép nội dung</Text>
+                      </Pressable>
+                    </View>
+                    {copiedQrNotice ? (
+                      <Text style={styles.copiedQrToast}>{copiedQrNotice}</Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={styles.noBankCallout}>
+                    <Text style={styles.noBankCalloutText}>
+                      {`${refundQrTarget.displayName} chưa cập nhật tài khoản ngân hàng trong mục Tài khoản — bạn có thể hoàn bằng tiền mặt hoặc hỏi STK trực tiếp.`}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.modalActions}>
+                  <ChiaNeButton
+                    label="Quay lại Chi tiết quỹ"
+                    variant="secondary"
+                    onPress={() => {
+                      setRefundQrTarget(null);
+                      setPotDetailOpen(true);
+                    }}
+                  />
+                  <ChiaNeButton
+                    label="Đóng"
+                    variant="quiet"
+                    onPress={() => setRefundQrTarget(null)}
+                  />
+                </View>
+              </>
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>
@@ -1548,5 +1933,161 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 13,
     color: colors.forest,
+  },
+  potCustodianLine: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.purple,
+  },
+  potContributeModalCard: {
+    maxHeight: '90%',
+  },
+  potContributeScroll: {
+    maxHeight: 450,
+  },
+  potContributeScrollContent: {
+    gap: 12,
+    paddingBottom: 4,
+  },
+  custodianBox: {
+    backgroundColor: colors.lavender,
+    borderRadius: 14,
+    padding: 12,
+    gap: 10,
+  },
+  custodianHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  custodianTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  custodianEyebrow: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    color: colors.purple,
+    letterSpacing: 0.4,
+  },
+  custodianName: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: colors.ink,
+  },
+  custodianBankSub: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.forest,
+  },
+  custodianNoBankSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.coral,
+  },
+  changeCustodianBtn: {
+    backgroundColor: colors.white,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  changeCustodianBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.purple,
+  },
+  custodianPickerWrap: {
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(110, 85, 165, 0.2)',
+    paddingTop: 8,
+  },
+  qrTransferCard: {
+    backgroundColor: colors.paper,
+    borderRadius: 16,
+    padding: 14,
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  qrBankInfoBox: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 2,
+  },
+  qrBankName: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: colors.ink,
+    textAlign: 'center',
+  },
+  qrHolderName: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
+    textAlign: 'center',
+  },
+  qrMemoText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.muted,
+    textAlign: 'center',
+  },
+  qrCopyRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  qrCopyBtn: {
+    backgroundColor: colors.white,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  qrCopyBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.forest,
+  },
+  copiedQrToast: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.forest,
+  },
+  noBankCallout: {
+    backgroundColor: colors.peach,
+    borderRadius: 14,
+    padding: 12,
+    gap: 10,
+  },
+  noBankCalloutText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.coral,
+  },
+  potRefundRightCol: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  refundQrPill: {
+    backgroundColor: colors.lime,
+    borderRadius: radii.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  refundQrPillText: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    color: colors.forest,
+  },
+  refundHeroAmount: {
+    fontFamily: fonts.extraBold,
+    fontSize: 28,
+    color: colors.forest,
+    textAlign: 'center',
   },
 });

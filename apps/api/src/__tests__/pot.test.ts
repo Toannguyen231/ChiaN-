@@ -190,4 +190,100 @@ describe('ChiaNè Group Pot (Quỹ chung nhóm / Heo đất) API', () => {
     expect(archivedPotRes.statusCode).toBe(400);
     expect(archivedPotRes.json().error.code).toBe('GROUP_ARCHIVED');
   });
+
+  it('defaults pot custodian to ADMIN with bankPreview and supports changing custodian for ADMIN/MEMBER (not GUEST)', async () => {
+    const an = await createAuthedUser(app, otpProvider, '0912345678', 'An');
+    const binh = await createAuthedUser(app, otpProvider, '0987654321', 'Bình');
+
+    // Configure real bank info for both An and Bình
+    const anBankRes = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/auth/me',
+      headers: an.authHeader,
+      payload: {
+        bankBin: '970436',
+        bankName: 'Vietcombank',
+        bankAccountNumber: '1234567890',
+        bankAccountHolder: 'NGUYEN VAN AN',
+      },
+    });
+    expect(anBankRes.statusCode).toBe(200);
+
+    const binhBankRes = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/auth/me',
+      headers: binh.authHeader,
+      payload: {
+        bankBin: '970422',
+        bankName: 'MB Bank',
+        bankAccountNumber: '0987654321',
+        bankAccountHolder: 'TRAN THI BINH',
+      },
+    });
+    expect(binhBankRes.statusCode).toBe(200);
+
+    const groupRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: an.authHeader,
+      payload: { name: 'Quỹ Ngân Hàng', category: 'TRAVEL' },
+    });
+    const group = groupRes.json().group;
+
+    const joinRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/invites/${group.inviteCode}/join`,
+      headers: binh.authHeader,
+      payload: {},
+    });
+    const binhMemberId = joinRes.json().memberId;
+
+    const guestRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/invites/${group.inviteCode}/join-guest`,
+      payload: { displayName: 'Khách' },
+    });
+    const guest = guestRes.json();
+
+    // Default custodian is An (ADMIN) with real bank info
+    const potInit = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${group.id}/pot`,
+      headers: an.authHeader,
+    });
+    expect(potInit.statusCode).toBe(200);
+    expect(potInit.json().custodian.memberId).toBe(group.myMemberId);
+    expect(potInit.json().custodian.bankPreview.hasRealBank).toBe(true);
+    expect(potInit.json().custodian.bankPreview.bankBin).toBe('970436');
+
+    // Guest cannot change pot custodian -> 403
+    const guestChange = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${group.id}/pot/custodian`,
+      headers: { 'x-guest-token': guest.guestToken },
+      payload: { custodianMemberId: binhMemberId },
+    });
+    expect(guestChange.statusCode).toBe(403);
+
+    // Member/Admin changes custodian to Bình -> 200
+    const changeRes = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${group.id}/pot/custodian`,
+      headers: binh.authHeader,
+      payload: { custodianMemberId: binhMemberId },
+    });
+    expect(changeRes.statusCode).toBe(200);
+    const updatedPot = changeRes.json();
+    expect(updatedPot.custodian.memberId).toBe(binhMemberId);
+    expect(updatedPot.custodian.bankPreview.hasRealBank).toBe(true);
+    expect(updatedPot.custodian.bankPreview.bankBin).toBe('970422');
+    expect(updatedPot.custodian.bankPreview.bankAccountNumber).toBe('0987654321');
+
+    // memberSummaries carry each member's bankPreview for surplus refund QR
+    const anSummary = updatedPot.memberSummaries.find(
+      (s: { memberId: string }) => s.memberId === group.myMemberId
+    );
+    expect(anSummary?.bankPreview?.hasRealBank).toBe(true);
+    expect(anSummary?.bankPreview?.bankAccountNumber).toBe('1234567890');
+  });
 });

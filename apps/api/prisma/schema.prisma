@@ -58,9 +58,10 @@ model Group {
   name            String
   category        String            @default("TRAVEL")
   currency        String            @default("VND")
-  inviteCode      String            @unique
-  isArchived      Boolean           @default(false)
-  createdByUserId String
+  inviteCode           String                 @unique
+  isArchived           Boolean                @default(false)
+  potCustodianMemberId String?
+  createdByUserId      String
   createdByUser   User              @relation("GroupCreator", fields: [createdByUserId], references: [id])
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt

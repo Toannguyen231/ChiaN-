@@ -283,3 +283,9 @@ export const contributePotSchema = z.object({
 });
 
 export type ContributePotInput = z.infer<typeof contributePotSchema>;
+
+export const setPotCustodianSchema = z.object({
+  custodianMemberId: z.string().trim().min(1, 'Vui lòng chọn thành viên làm Thủ quỹ'),
+});
+
+export type SetPotCustodianInput = z.infer<typeof setPotCustodianSchema>;
