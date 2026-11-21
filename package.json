@@ -1,0 +1,23 @@
+{
+  "name": "chiane-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ChiaNè - Vietnamese group expense-sharing application",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "start": "npm run start --workspace=@chiane/mobile",
+    "build:shared": "npm run build --workspace=@chiane/shared",
+    "dev:api": "npm run dev --workspace=@chiane/api",
+    "dev:mobile": "npm run start --workspace=@chiane/mobile",
+    "test": "npm run test --workspace=@chiane/shared && npm run test --workspace=@chiane/api",
+    "typecheck": "npm run typecheck --workspace=@chiane/shared && npm run typecheck --workspace=@chiane/api && npm run typecheck --workspace=@chiane/mobile",
+    "db:generate": "npm run db:generate --workspace=@chiane/api",
+    "db:push": "npm run db:push --workspace=@chiane/api"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "terminal.integrated.env.windows": {
+    "PATH": "D:\\nvm\\v22.22.2;${env:PATH}"
+  }
+}
+

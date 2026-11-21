@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "ChiaNè",
+    "slug": "chiane",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "chiane",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.chiane.app",
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "backgroundColor": "#173E32"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#173E32",
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-status-bar"
+    ]
+  }
+}

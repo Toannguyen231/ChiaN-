@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Databases
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Build Outputs
+dist/
+build/
+coverage/
+.expo/
+web-build/
+android/
+ios/
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
