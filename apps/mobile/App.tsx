@@ -9,6 +9,7 @@ import {
 } from '@expo-google-fonts/be-vietnam-pro';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ToastProvider } from './src/components';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 void SplashScreen.preventAutoHideAsync();
@@ -34,7 +35,9 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <RootNavigator />
+      <ToastProvider>
+        <RootNavigator />
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }

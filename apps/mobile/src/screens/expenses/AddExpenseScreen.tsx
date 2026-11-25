@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,21 +23,34 @@ import IconChevron from '../../../assets/figma/icon-chevron.svg';
 import IconReceipt from '../../../assets/figma/icon-receipt.svg';
 import {
   AppHeader,
+  AvatarBadge,
+  BottomSheetModal,
   ChiaNeButton,
   ChiaNeChip,
   ChiaNeInput,
   LuckyWheelModal,
+  ScalePressable,
   ScreenContainer,
+  showToast,
   StateView,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
 import { ApiClientError } from '../../services/apiClient';
 import { expensesApi } from '../../services/expensesApi';
 import { ocrApi } from '../../services/ocrApi';
+import { potApi } from '../../services/potApi';
 import { useExpenseDraftStore } from '../../store/expenseDraftStore';
 import { useGroupsStore } from '../../store/groupsStore';
 import { useOfflineQueueStore } from '../../store/offlineQueueStore';
-import { colors, fonts, radii, sizes, typography } from '../../theme/tokens';
+import {
+  colors,
+  fonts,
+  radii,
+  shadows,
+  sizes,
+  tabularNums,
+  typography,
+} from '../../theme/tokens';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'AddExpense'>;
 
@@ -78,7 +90,7 @@ function parseDateVi(input: string): string | null {
 }
 
 export function AddExpenseScreen({ navigation, route }: Props) {
-  const { groupId, expenseId } = route.params;
+  const { groupId, expenseId, autoScanReceipt } = route.params;
   const isEdit = Boolean(expenseId);
 
   const cachedGroup = useGroupsStore((s) => s.groupDetailsById[groupId]);
@@ -91,6 +103,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [hasPotActivity, setHasPotActivity] = useState(false);
 
   const [payerModalOpen, setPayerModalOpen] = useState(false);
   const [dateModalOpen, setDateModalOpen] = useState(false);
@@ -108,12 +121,23 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [itemizedOverflowed, setItemizedOverflowed] = useState(false);
   const [luckyWheelOpen, setLuckyWheelOpen] = useState(false);
 
+  const autoScanTriggeredRef = useRef(false);
+
   const initialize = useCallback(async () => {
     setLoadError(null);
     try {
-      const groupDetail =
-        useGroupsStore.getState().groupDetailsById[groupId] ??
-        (await fetchGroupDetail(groupId));
+      const [groupDetail, potRes] = await Promise.all([
+        useGroupsStore.getState().groupDetailsById[groupId]
+          ? Promise.resolve(useGroupsStore.getState().groupDetailsById[groupId]!)
+          : fetchGroupDetail(groupId),
+        potApi.getPot(groupId).catch(() => null),
+      ]);
+
+      setHasPotActivity(
+        Boolean(potRes) &&
+          ((potRes?.totalContributedVnd ?? 0) > 0 ||
+            (potRes?.totalSpentFromPotVnd ?? 0) > 0)
+      );
 
       if (expenseId) {
         const res = await expensesApi.getExpense(expenseId);
@@ -134,6 +158,22 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expenseId, fetchGroupDetail, groupId]);
+
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
+
+  useEffect(() => {
+    if (
+      autoScanReceipt &&
+      !loading &&
+      !loadError &&
+      !autoScanTriggeredRef.current
+    ) {
+      autoScanTriggeredRef.current = true;
+      setPhotoPickerOpen(true);
+    }
+  }, [autoScanReceipt, loadError, loading]);
 
   const handlePickImage = async (fromCamera: boolean) => {
     setPhotoPickerOpen(false);
@@ -210,6 +250,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
         if (scan.notice) {
           setScanNotice(scan.notice);
+        } else {
+          showToast('Đã quét xong hóa đơn!');
         }
       } catch (ocrErr) {
         setScanNotice(
@@ -224,10 +266,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       setScanNotice('Lỗi khi mở máy ảnh hoặc thư viện ảnh.');
     }
   };
-
-  useEffect(() => {
-    void initialize();
-  }, [initialize]);
 
   const group = cachedGroup ?? useGroupsStore.getState().groupDetailsById[groupId];
   const members = useMemo(() => group?.members ?? [], [group?.members]);
@@ -298,7 +336,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       currentSet.add(memberId);
     }
 
-    // Assigning everyone equals shared pool ("Cả bàn")
     const nextAssigned =
       currentSet.size >= members.length ? [] : Array.from(currentSet);
     const nextItems = draft.scannedItems.map((it, idx) =>
@@ -313,6 +350,26 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       idx === activeItemIndex ? { ...it, assignedMemberIds: [] } : it
     );
     applyItemizedDraft(nextItems, draft.amountVnd);
+  };
+
+  const toggleInlineEqualMember = (memberId: string) => {
+    const exists = draft.participantIds.includes(memberId);
+    if (exists) {
+      if (draft.participantIds.length <= 1) {
+        showToast({
+          message: 'Cần giữ ít nhất 1 người để chia khoản chi.',
+          tone: 'warning',
+        });
+        return;
+      }
+      draft.patchDraft({
+        participantIds: draft.participantIds.filter((id) => id !== memberId),
+      });
+    } else {
+      draft.patchDraft({
+        participantIds: [...draft.participantIds, memberId],
+      });
+    }
   };
 
   const payerName =
@@ -458,6 +515,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         });
         await fetchGroupDetail(groupId);
         draft.clearDraft();
+        showToast('Đã cập nhật khoản chi!');
         navigation.goBack();
       } else {
         const clientMutationId = `chiane_${Date.now()}_${Math.random()
@@ -470,6 +528,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           });
           await fetchGroupDetail(groupId);
           draft.clearDraft();
+          showToast('Đã lưu khoản chi!');
           navigation.goBack();
         } catch (err) {
           if (err instanceof ApiClientError && err.code === 'NETWORK_ERROR') {
@@ -496,6 +555,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       setSubmitting(false);
     }
   };
+
+  const showScanResultCard =
+    scanningReceipt ||
+    Boolean(scanNotice) ||
+    Boolean(receiptImageUri) ||
+    draft.scannedItems.length > 0;
 
   return (
     <ScreenContainer
@@ -533,201 +598,48 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         />
       ) : group ? (
         <View style={styles.content}>
-          <View style={styles.groupBadge}>
-            <Text style={styles.groupBadgeText} numberOfLines={1}>
-              {group.name}
-            </Text>
-          </View>
-
-          {/* AI Receipt Scanning Banner */}
-          <View style={styles.ocrCard}>
-            <View style={styles.ocrHeaderRow}>
-              <View style={styles.ocrTitleCol}>
-                <Text style={styles.ocrBadge}>✨ AI GEMINI VISION</Text>
-                <Text style={styles.ocrTitle}>Quét hóa đơn tự động</Text>
-                <Text style={styles.ocrSubtitle}>
-                  Tự động đọc tổng tiền, phân loại & nhận diện món
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setPhotoPickerOpen(true)}
-                disabled={scanningReceipt}
-                style={({ pressed }) => [
-                  styles.ocrScanBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.ocrScanBtnText}>
-                  {scanningReceipt
-                    ? 'Đang quét...'
-                    : receiptImageUri
-                      ? 'Đổi ảnh'
-                      : 'Quét ảnh'}
-                </Text>
-              </Pressable>
+          {/* 1) Top Bar: Group Pill + Compact AI Scan Pill */}
+          <View style={styles.topRow}>
+            <View style={styles.groupBadge}>
+              <Text style={styles.groupBadgeText} numberOfLines={1}>
+                {group.name}
+              </Text>
             </View>
-
-            {scanningReceipt ? (
-              <View style={styles.scanningBox}>
-                <Text style={styles.scanningText}>
-                  ⏳ AI đang đọc các món và tính tổng tiền hóa đơn...
-                </Text>
-              </View>
-            ) : null}
-
-            {scanNotice ? (
-              <View
-                style={[
-                  styles.ocrNoticeBox,
-                  scanNotice.startsWith('✨') && styles.ocrNoticeSuccessBox,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.ocrNoticeText,
-                    scanNotice.startsWith('✨') && styles.ocrNoticeSuccessText,
-                  ]}
-                >
-                  {scanNotice}
-                </Text>
-              </View>
-            ) : null}
-
-            {receiptImageUri ? (
-              <View style={styles.receiptPreviewRow}>
-                <Image
-                  source={{ uri: receiptImageUri }}
-                  style={styles.receiptPreviewThumb}
-                  resizeMode="cover"
-                />
-                <View style={styles.receiptPreviewMeta}>
-                  <Text style={styles.receiptAttachedText}>Đã đính kèm ảnh hóa đơn</Text>
-                  <Pressable
-                    onPress={() => {
-                      setReceiptImageUri('');
-                      setItemizedOverflowed(false);
-                      draft.patchDraft({
-                        receiptImageUrl: '',
-                        scannedItems: [],
-                      });
-                    }}
-                  >
-                    <Text style={styles.removeReceiptText}>Gỡ ảnh</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : null}
-
-            {draft.scannedItems.length > 0 ? (
-              <View style={styles.scannedItemsWrap}>
-                <View style={styles.scannedHeaderRow}>
-                  <Text style={styles.scannedItemsHeading}>
-                    {`Món nhận diện (${draft.scannedItems.length} món) · Chạm để chọn người`}
-                  </Text>
-                </View>
-                <View style={styles.scannedItemsList}>
-                  {draft.scannedItems.map((item, idx) => {
-                    const assignedIds = (item.assignedMemberIds ?? []).filter((id) =>
-                      members.some((m) => m.id === id)
-                    );
-                    const isCustom =
-                      assignedIds.length > 0 && assignedIds.length < members.length;
-                    const assigneeNames = assignedIds
-                      .map((id) => members.find((m) => m.id === id)?.displayName ?? '')
-                      .filter(Boolean);
-                    const chipLabel = isCustom
-                      ? assigneeNames.length <= 2
-                        ? `👤 ${assigneeNames.join(', ')}`
-                        : `👤 ${assignedIds.length} người · ${assigneeNames.slice(0, 2).join(', ')} +${assigneeNames.length - 2}`
-                      : '🍽️ Cả bàn';
-
-                    return (
-                      <Pressable
-                        key={`${item.name}_${idx}`}
-                        accessibilityRole="button"
-                        onPress={() => setActiveItemIndex(idx)}
-                        style={({ pressed }) => [
-                          styles.scannedItemCard,
-                          isCustom && styles.scannedItemCardAssigned,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <View style={styles.scannedItemTopRow}>
-                          <Text style={styles.scannedItemName} numberOfLines={1}>
-                            {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}
-                            {item.name}
-                          </Text>
-                          <Text style={styles.scannedItemPrice}>
-                            {formatVnd(item.priceVnd)}
-                          </Text>
-                        </View>
-                        <View style={styles.scannedItemBottomRow}>
-                          <View
-                            style={[
-                              styles.itemAssigneeChip,
-                              isCustom && styles.itemAssigneeChipActive,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.itemAssigneeChipText,
-                                isCustom && styles.itemAssigneeChipTextActive,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {chipLabel}
-                            </Text>
-                          </View>
-                          <Text style={styles.itemEditHint}>Chọn người ›</Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                {hasCustomItemAssignments && draft.amountVnd > 0 ? (
-                  <View style={styles.itemizedSummaryCard}>
-                    <Text style={styles.itemizedSummaryTitle}>
-                      🍺 Tạm tính chia theo món từng người:
-                    </Text>
-                    <View style={styles.itemizedSummaryGrid}>
-                      {members.map((m) => (
-                        <View key={m.id} style={styles.itemizedMemberChip}>
-                          <Text style={styles.itemizedMemberName} numberOfLines={1}>
-                            {m.displayName}
-                          </Text>
-                          <Text style={styles.itemizedMemberAmount}>
-                            {formatVnd(draft.exactAmountsByMember[m.id] ?? 0)}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                    {itemizedOverflowed ? (
-                      <Text style={styles.itemizedOverflowNote}>
-                        Tổng món riêng vượt tổng bill (do giảm giá/voucher) — đã tự chia lại đúng tỷ lệ.
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
+            <ScalePressable
+              accessibilityRole="button"
+              onPress={() => setPhotoPickerOpen(true)}
+              disabled={scanningReceipt}
+              scaleTo={0.95}
+              style={styles.ocrCompactPill}
+            >
+              <Text style={styles.ocrCompactPillText}>
+                {scanningReceipt
+                  ? '⏳ Đang quét...'
+                  : receiptImageUri
+                    ? '📷 Quét lại bill'
+                    : '✨ Quét bill AI'}
+              </Text>
+            </ScalePressable>
           </View>
 
-          <Text style={styles.amountEyebrow}>SỐ TIỀN</Text>
-          <View style={styles.amountRow}>
-            <TextInput
-              value={formattedAmountInput}
-              onChangeText={handleAmountChange}
-              placeholder="0"
-              placeholderTextColor={colors.muted}
-              keyboardType="number-pad"
-              style={styles.amountInput}
-              maxLength={14}
-            />
-            <Text style={styles.currencySymbol}>₫</Text>
+          {/* 2) Hero Amount Input */}
+          <View style={styles.amountCard}>
+            <Text style={styles.amountEyebrow}>SỐ TIỀN</Text>
+            <View style={styles.amountRow}>
+              <TextInput
+                value={formattedAmountInput}
+                onChangeText={handleAmountChange}
+                placeholder="0"
+                placeholderTextColor={colors.muted}
+                keyboardType="number-pad"
+                style={[styles.amountInput, tabularNums]}
+                maxLength={14}
+              />
+              <Text style={styles.currencySymbol}>₫</Text>
+            </View>
           </View>
 
+          {/* 3) Description + Category */}
           <ChiaNeInput
             label="Chi cho việc gì?"
             value={draft.title}
@@ -757,6 +669,159 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             </ScrollView>
           </View>
 
+          {/* 4) Collapsible AI Receipt Result Card (only shown when scanning or scanned) */}
+          {showScanResultCard ? (
+            <View style={styles.ocrCard}>
+              {scanningReceipt ? (
+                <View style={styles.scanningBox}>
+                  <Text style={styles.scanningText}>
+                    ⏳ AI đang đọc các món và tính tổng tiền hóa đơn...
+                  </Text>
+                </View>
+              ) : null}
+
+              {scanNotice ? (
+                <View
+                  style={[
+                    styles.ocrNoticeBox,
+                    (scanNotice.startsWith('✨') || scanNotice.startsWith('🎉')) &&
+                      styles.ocrNoticeSuccessBox,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.ocrNoticeText,
+                      (scanNotice.startsWith('✨') || scanNotice.startsWith('🎉')) &&
+                        styles.ocrNoticeSuccessText,
+                    ]}
+                  >
+                    {scanNotice}
+                  </Text>
+                </View>
+              ) : null}
+
+              {receiptImageUri ? (
+                <View style={styles.receiptPreviewRow}>
+                  <Image
+                    source={{ uri: receiptImageUri }}
+                    style={styles.receiptPreviewThumb}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.receiptPreviewMeta}>
+                    <Text style={styles.receiptAttachedText}>Đã đính kèm ảnh hóa đơn</Text>
+                    <Pressable
+                      onPress={() => {
+                        setReceiptImageUri('');
+                        setItemizedOverflowed(false);
+                        draft.patchDraft({
+                          receiptImageUrl: '',
+                          scannedItems: [],
+                        });
+                      }}
+                    >
+                      <Text style={styles.removeReceiptText}>Gỡ ảnh</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
+              {draft.scannedItems.length > 0 ? (
+                <View style={styles.scannedItemsWrap}>
+                  <View style={styles.scannedHeaderRow}>
+                    <Text style={styles.scannedItemsHeading}>
+                      {`Món nhận diện (${draft.scannedItems.length} món) · Chạm để chọn người`}
+                    </Text>
+                  </View>
+                  <View style={styles.scannedItemsList}>
+                    {draft.scannedItems.map((item, idx) => {
+                      const assignedIds = (item.assignedMemberIds ?? []).filter((id) =>
+                        members.some((m) => m.id === id)
+                      );
+                      const isCustom =
+                        assignedIds.length > 0 && assignedIds.length < members.length;
+                      const assigneeNames = assignedIds
+                        .map((id) => members.find((m) => m.id === id)?.displayName ?? '')
+                        .filter(Boolean);
+                      const chipLabel = isCustom
+                        ? assigneeNames.length <= 2
+                          ? `👤 ${assigneeNames.join(', ')}`
+                          : `👤 ${assignedIds.length} người · ${assigneeNames.slice(0, 2).join(', ')} +${assigneeNames.length - 2}`
+                        : '🍽️ Cả bàn';
+
+                      return (
+                        <ScalePressable
+                          key={`${item.name}_${idx}`}
+                          accessibilityRole="button"
+                          onPress={() => setActiveItemIndex(idx)}
+                          scaleTo={0.98}
+                          style={[
+                            styles.scannedItemCard,
+                            isCustom && styles.scannedItemCardAssigned,
+                          ]}
+                        >
+                          <View style={styles.scannedItemTopRow}>
+                            <Text style={styles.scannedItemName} numberOfLines={1}>
+                              {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}
+                              {item.name}
+                            </Text>
+                            <Text style={[styles.scannedItemPrice, tabularNums]}>
+                              {formatVnd(item.priceVnd)}
+                            </Text>
+                          </View>
+                          <View style={styles.scannedItemBottomRow}>
+                            <View
+                              style={[
+                                styles.itemAssigneeChip,
+                                isCustom && styles.itemAssigneeChipActive,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.itemAssigneeChipText,
+                                  isCustom && styles.itemAssigneeChipTextActive,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {chipLabel}
+                              </Text>
+                            </View>
+                            <Text style={styles.itemEditHint}>Chọn người ›</Text>
+                          </View>
+                        </ScalePressable>
+                      );
+                    })}
+                  </View>
+
+                  {hasCustomItemAssignments && draft.amountVnd > 0 ? (
+                    <View style={styles.itemizedSummaryCard}>
+                      <Text style={styles.itemizedSummaryTitle}>
+                        🍺 Tạm tính chia theo món từng người:
+                      </Text>
+                      <View style={styles.itemizedSummaryGrid}>
+                        {members.map((m) => (
+                          <View key={m.id} style={styles.itemizedMemberChip}>
+                            <Text style={styles.itemizedMemberName} numberOfLines={1}>
+                              {m.displayName}
+                            </Text>
+                            <Text style={[styles.itemizedMemberAmount, tabularNums]}>
+                              {formatVnd(draft.exactAmountsByMember[m.id] ?? 0)}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                      {itemizedOverflowed ? (
+                        <Text style={styles.itemizedOverflowNote}>
+                          Tổng món riêng vượt tổng bill (do giảm giá/voucher) — đã tự chia lại đúng tỷ lệ.
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {/* 5) Settings Card + Inline Quick Member Toggle */}
           <View style={styles.settingsCard}>
             <View style={styles.payerSettingWrap}>
               <Pressable
@@ -776,17 +841,15 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                 </View>
               </Pressable>
               {!draft.isPaidFromPot && members.length >= 2 ? (
-                <Pressable
+                <ScalePressable
                   accessibilityRole="button"
                   onPress={() => setLuckyWheelOpen(true)}
                   hitSlop={4}
-                  style={({ pressed }) => [
-                    styles.wheelPillBtn,
-                    pressed && styles.pressed,
-                  ]}
+                  scaleTo={0.94}
+                  style={styles.wheelPillBtn}
                 >
-                  <Text style={styles.wheelPillText}>🎡 Quay người bao</Text>
-                </Pressable>
+                  <Text style={styles.wheelPillText}>🎡 Quay</Text>
+                </ScalePressable>
               ) : null}
             </View>
 
@@ -809,6 +872,50 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               </View>
             </Pressable>
 
+            {draft.splitMethod === 'EQUAL' &&
+            !hasCustomItemAssignments &&
+            members.length > 0 ? (
+              <View style={styles.quickSplitStripWrap}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.quickSplitStrip}
+                >
+                  {members.map((m) => {
+                    const selected = draft.participantIds.includes(m.id);
+                    return (
+                      <ScalePressable
+                        key={m.id}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selected }}
+                        onPress={() => toggleInlineEqualMember(m.id)}
+                        scaleTo={0.95}
+                        style={[
+                          styles.memberSplitChip,
+                          selected && styles.memberSplitChipOn,
+                        ]}
+                      >
+                        <AvatarBadge
+                          name={m.displayName}
+                          size={22}
+                          highlight={selected}
+                        />
+                        <Text
+                          style={[
+                            styles.memberSplitName,
+                            selected && styles.memberSplitNameOn,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {m.displayName}
+                        </Text>
+                      </ScalePressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={styles.divider} />
 
             <Pressable
@@ -828,349 +935,309 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               </View>
             </Pressable>
 
-            <View style={styles.divider} />
-
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: draft.isPaidFromPot }}
-              onPress={() =>
-                draft.patchDraft({ isPaidFromPot: !draft.isPaidFromPot })
-              }
-              style={({ pressed }) => [
-                styles.potToggleRow,
-                pressed && styles.pressed,
-              ]}
-            >
-              <View style={styles.potToggleTextCol}>
-                <Text style={styles.potToggleTitle}>🐷 Trừ từ quỹ chung nhóm</Text>
-                <Text style={styles.potToggleSub}>
-                  Trừ vào số dư quỹ, không tạo nợ cá nhân
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.checkbox,
-                  draft.isPaidFromPot ? styles.checkboxOn : styles.checkboxOff,
-                ]}
-              >
-                {draft.isPaidFromPot ? <IconCheck width={15} height={15} /> : null}
-              </View>
-            </Pressable>
+            {hasPotActivity || draft.isPaidFromPot ? (
+              <>
+                <View style={styles.divider} />
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: draft.isPaidFromPot }}
+                  onPress={() =>
+                    draft.patchDraft({ isPaidFromPot: !draft.isPaidFromPot })
+                  }
+                  style={({ pressed }) => [
+                    styles.potToggleRow,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.potToggleTextCol}>
+                    <Text style={styles.potToggleTitle}>🐷 Trừ từ quỹ chung nhóm</Text>
+                    <Text style={styles.potToggleSub}>
+                      Trừ vào số dư quỹ, không tạo nợ cá nhân
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.checkbox,
+                      draft.isPaidFromPot ? styles.checkboxOn : styles.checkboxOff,
+                    ]}
+                  >
+                    {draft.isPaidFromPot ? <IconCheck width={15} height={15} /> : null}
+                  </View>
+                </Pressable>
+              </>
+            ) : null}
           </View>
 
-          <Pressable
+          {/* 6) Optional Note Bar */}
+          <ScalePressable
             accessibilityRole="button"
             onPress={handleOpenNoteModal}
-            style={({ pressed }) => [styles.noteBar, pressed && styles.pressed]}
+            scaleTo={0.98}
+            style={styles.noteBar}
           >
-            <IconReceipt width={22} height={22} />
+            <IconReceipt width={20} height={20} />
             <Text style={styles.noteBarText} numberOfLines={1}>
               {draft.note.trim()
                 ? `Ghi chú: ${draft.note.trim()}`
-                : receiptImageUri
-                  ? '🧾 Đã đính kèm ảnh hóa đơn · Bấm để sửa'
-                  : 'Thêm ảnh hóa đơn hoặc ghi chú'}
+                : 'Thêm ghi chú (tùy chọn)'}
             </Text>
-          </Pressable>
+            <IconChevron width={16} height={16} />
+          </ScalePressable>
 
           {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
         </View>
       ) : null}
 
-      {/* Payer Picker Modal */}
-      <Modal
+      {/* Payer Picker BottomSheet */}
+      <BottomSheetModal
         visible={payerModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPayerModalOpen(false)}
+        onClose={() => setPayerModalOpen(false)}
+        title="Ai đã trả khoản này?"
+        scrollable
+        footer={
+          <ChiaNeButton
+            label="Đóng"
+            variant="quiet"
+            onPress={() => setPayerModalOpen(false)}
+          />
+        }
       >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setPayerModalOpen(false)}
-        >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Ai đã trả khoản này?</Text>
-            <View style={styles.modalList}>
-              {members.map((member) => {
-                const selected = member.id === draft.paidByMemberId;
-                return (
-                  <Pressable
-                    key={member.id}
-                    onPress={() => {
-                      draft.patchDraft({ paidByMemberId: member.id });
-                      setPayerModalOpen(false);
-                    }}
-                    style={[
-                      styles.payerRow,
-                      selected && styles.payerRowSelected,
-                    ]}
-                  >
+        <View style={styles.modalList}>
+          {members.map((member) => {
+            const selected = member.id === draft.paidByMemberId;
+            return (
+              <ScalePressable
+                key={member.id}
+                onPress={() => {
+                  draft.patchDraft({ paidByMemberId: member.id });
+                  setPayerModalOpen(false);
+                }}
+                scaleTo={0.98}
+                style={[styles.payerRow, selected && styles.payerRowSelected]}
+              >
+                <View style={styles.memberAvatarRow}>
+                  <AvatarBadge
+                    name={member.displayName}
+                    size={32}
+                    highlight={selected}
+                  />
+                  <Text style={styles.payerName}>
+                    {member.displayName}
+                    {member.isMe ? ' (bạn)' : ''}
+                  </Text>
+                </View>
+                {selected ? (
+                  <View style={styles.checkBadge}>
+                    <IconCheck width={14} height={14} />
+                  </View>
+                ) : null}
+              </ScalePressable>
+            );
+          })}
+        </View>
+      </BottomSheetModal>
+
+      {/* Date Picker BottomSheet */}
+      <BottomSheetModal
+        visible={dateModalOpen}
+        onClose={() => setDateModalOpen(false)}
+        title="Chọn ngày chi"
+        footer={
+          <View style={styles.modalActions}>
+            <ChiaNeButton
+              label="Áp dụng ngày"
+              variant="primary"
+              onPress={handleApplyDateText}
+            />
+            <ChiaNeButton
+              label="Hủy"
+              variant="quiet"
+              onPress={() => setDateModalOpen(false)}
+            />
+          </View>
+        }
+      >
+        <View style={styles.quickDatesRow}>
+          <ChiaNeChip
+            label="Hôm nay"
+            onPress={() => {
+              const now = new Date();
+              draft.patchDraft({ expenseDateIso: now.toISOString() });
+              setDateModalOpen(false);
+            }}
+          />
+          <ChiaNeChip
+            label="Hôm qua"
+            onPress={() => {
+              const yest = new Date(Date.now() - 86400000);
+              draft.patchDraft({ expenseDateIso: yest.toISOString() });
+              setDateModalOpen(false);
+            }}
+          />
+        </View>
+        <ChiaNeInput
+          label="Hoặc nhập ngày (DD/MM/YYYY)"
+          value={dateText}
+          onChangeText={(t) => {
+            setDateText(t);
+            if (dateError) setDateError(null);
+          }}
+          placeholder="20/11/2026"
+          errorText={dateError}
+        />
+      </BottomSheetModal>
+
+      {/* Note BottomSheet */}
+      <BottomSheetModal
+        visible={noteModalOpen}
+        onClose={() => setNoteModalOpen(false)}
+        title="Ghi chú khoản chi"
+        footer={
+          <View style={styles.modalActions}>
+            <ChiaNeButton
+              label="Lưu ghi chú"
+              variant="primary"
+              onPress={() => {
+                const trimmedReceipt = receiptInput.trim();
+                const keepDataImage =
+                  !trimmedReceipt && draft.receiptImageUrl.startsWith('data:image/');
+                draft.patchDraft({
+                  note: noteInput,
+                  ...(keepDataImage ? {} : { receiptImageUrl: trimmedReceipt }),
+                });
+                if (!keepDataImage) {
+                  setReceiptImageUri(trimmedReceipt);
+                }
+                setNoteModalOpen(false);
+              }}
+            />
+            <ChiaNeButton
+              label="Đóng"
+              variant="quiet"
+              onPress={() => setNoteModalOpen(false)}
+            />
+          </View>
+        }
+      >
+        <ChiaNeInput
+          label="Ghi chú"
+          value={noteInput}
+          onChangeText={setNoteInput}
+          placeholder="Ví dụ: Quán nướng gần chợ đêm"
+          maxLength={300}
+        />
+        <ChiaNeInput
+          label="Mã / liên kết hóa đơn (không bắt buộc)"
+          value={receiptInput}
+          onChangeText={setReceiptInput}
+          placeholder="https://... hoặc mã hóa đơn"
+          autoCapitalize="none"
+          maxLength={500}
+        />
+      </BottomSheetModal>
+
+      {/* Photo Picker BottomSheet */}
+      <BottomSheetModal
+        visible={photoPickerOpen}
+        onClose={() => setPhotoPickerOpen(false)}
+        title="Quét hóa đơn AI"
+        subtitle="Chụp ảnh hóa đơn hoặc chọn ảnh từ máy, AI sẽ tự đọc tổng tiền và gợi ý các món."
+        footer={
+          <ChiaNeButton
+            label="Hủy"
+            variant="quiet"
+            onPress={() => setPhotoPickerOpen(false)}
+          />
+        }
+      >
+        <View style={styles.photoPickerOptions}>
+          <ChiaNeButton
+            label="📷 Chụp ảnh mới"
+            variant="primary"
+            onPress={() => void handlePickImage(true)}
+          />
+          <ChiaNeButton
+            label="🖼️ Chọn ảnh từ máy"
+            variant="secondary"
+            onPress={() => void handlePickImage(false)}
+          />
+        </View>
+      </BottomSheetModal>
+
+      {/* Item Assignee BottomSheet */}
+      <BottomSheetModal
+        visible={activeItemIndex !== null && Boolean(draft.scannedItems[activeItemIndex])}
+        onClose={() => setActiveItemIndex(null)}
+        title={
+          activeItemIndex !== null && draft.scannedItems[activeItemIndex]
+            ? draft.scannedItems[activeItemIndex]!.name
+            : undefined
+        }
+        subtitle={
+          activeItemIndex !== null && draft.scannedItems[activeItemIndex]
+            ? `Giá món: ${formatVnd(
+                draft.scannedItems[activeItemIndex]!.priceVnd
+              )} · Không chọn ai = Cả bàn chia đều`
+            : undefined
+        }
+        scrollable
+        footer={
+          <View style={styles.modalActions}>
+            <ChiaNeButton
+              label="Chọn tất cả (Cả bàn)"
+              variant="secondary"
+              onPress={resetActiveItemToAll}
+            />
+            <ChiaNeButton
+              label="Xong"
+              variant="primary"
+              onPress={() => setActiveItemIndex(null)}
+            />
+          </View>
+        }
+      >
+        {activeItemIndex !== null && draft.scannedItems[activeItemIndex] ? (
+          <View style={styles.modalList}>
+            {members.map((member) => {
+              const currentIds =
+                draft.scannedItems[activeItemIndex!]!.assignedMemberIds ?? [];
+              const checked = currentIds.includes(member.id);
+              return (
+                <ScalePressable
+                  key={member.id}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked }}
+                  onPress={() => toggleMemberForActiveItem(member.id)}
+                  scaleTo={0.98}
+                  style={[styles.payerRow, checked && styles.payerRowSelected]}
+                >
+                  <View style={styles.memberAvatarRow}>
+                    <AvatarBadge
+                      name={member.displayName}
+                      size={30}
+                      highlight={checked}
+                    />
                     <Text style={styles.payerName}>
                       {member.displayName}
                       {member.isMe ? ' (bạn)' : ''}
                     </Text>
-                    {selected ? (
-                      <View style={styles.checkBadge}>
-                        <IconCheck width={14} height={14} />
-                      </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-            <ChiaNeButton
-              label="Đóng"
-              variant="quiet"
-              onPress={() => setPayerModalOpen(false)}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
+                  </View>
+                  <View
+                    style={[
+                      styles.checkbox,
+                      checked ? styles.checkboxOn : styles.checkboxOff,
+                    ]}
+                  >
+                    {checked ? <IconCheck width={14} height={14} /> : null}
+                  </View>
+                </ScalePressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </BottomSheetModal>
 
-      {/* Date Picker Modal */}
-      <Modal
-        visible={dateModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDateModalOpen(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setDateModalOpen(false)}
-        >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Chọn ngày chi</Text>
-            <View style={styles.quickDatesRow}>
-              <ChiaNeChip
-                label="Hôm nay"
-                onPress={() => {
-                  const now = new Date();
-                  draft.patchDraft({ expenseDateIso: now.toISOString() });
-                  setDateModalOpen(false);
-                }}
-              />
-              <ChiaNeChip
-                label="Hôm qua"
-                onPress={() => {
-                  const yest = new Date(Date.now() - 86400000);
-                  draft.patchDraft({ expenseDateIso: yest.toISOString() });
-                  setDateModalOpen(false);
-                }}
-              />
-            </View>
-            <ChiaNeInput
-              label="Hoặc nhập ngày (DD/MM/YYYY)"
-              value={dateText}
-              onChangeText={(t) => {
-                setDateText(t);
-                if (dateError) setDateError(null);
-              }}
-              placeholder="20/11/2026"
-              errorText={dateError}
-            />
-            <View style={styles.modalActions}>
-              <ChiaNeButton
-                label="Áp dụng ngày"
-                variant="primary"
-                onPress={handleApplyDateText}
-              />
-              <ChiaNeButton
-                label="Hủy"
-                variant="quiet"
-                onPress={() => setDateModalOpen(false)}
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Note & Receipt Modal */}
-      <Modal
-        visible={noteModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setNoteModalOpen(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setNoteModalOpen(false)}
-        >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Ghi chú & Hóa đơn</Text>
-            <ChiaNeInput
-              label="Ghi chú khoản chi"
-              value={noteInput}
-              onChangeText={setNoteInput}
-              placeholder="Ví dụ: Quán nướng gần chợ đêm"
-              maxLength={300}
-            />
-            <ChiaNeInput
-              label="Liên kết / mã hóa đơn (không bắt buộc)"
-              value={receiptInput}
-              onChangeText={setReceiptInput}
-              placeholder="https://... hoặc mã hóa đơn"
-              autoCapitalize="none"
-              maxLength={500}
-            />
-            <View style={styles.modalPhotoRow}>
-              <ChiaNeButton
-                label={receiptImageUri ? '📷 Đổi ảnh chụp hóa đơn' : '📷 Chụp hoặc tải ảnh hóa đơn'}
-                variant="quiet"
-                onPress={() => {
-                  setNoteModalOpen(false);
-                  setPhotoPickerOpen(true);
-                }}
-              />
-            </View>
-            <View style={styles.modalActions}>
-              <ChiaNeButton
-                label="Lưu ghi chú"
-                variant="primary"
-                onPress={() => {
-                  const trimmedReceipt = receiptInput.trim();
-                  const keepDataImage =
-                    !trimmedReceipt && draft.receiptImageUrl.startsWith('data:image/');
-                  draft.patchDraft({
-                    note: noteInput,
-                    ...(keepDataImage ? {} : { receiptImageUrl: trimmedReceipt }),
-                  });
-                  if (!keepDataImage) {
-                    setReceiptImageUri(trimmedReceipt);
-                  }
-                  setNoteModalOpen(false);
-                }}
-              />
-              <ChiaNeButton
-                label="Đóng"
-                variant="quiet"
-                onPress={() => setNoteModalOpen(false)}
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Photo Picker Modal */}
-      <Modal
-        visible={photoPickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPhotoPickerOpen(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setPhotoPickerOpen(false)}
-        >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Quét hóa đơn AI</Text>
-            <Text style={styles.modalSubtitle}>
-              Chụp ảnh hóa đơn hoặc chọn ảnh từ máy, AI sẽ tự đọc tổng tiền và gợi ý các món.
-            </Text>
-            <View style={styles.photoPickerOptions}>
-              <ChiaNeButton
-                label="📷 Chụp ảnh mới"
-                variant="primary"
-                onPress={() => void handlePickImage(true)}
-              />
-              <ChiaNeButton
-                label="🖼️ Chọn ảnh từ máy"
-                variant="quiet"
-                onPress={() => void handlePickImage(false)}
-              />
-              <ChiaNeButton
-                label="Hủy"
-                variant="quiet"
-                onPress={() => setPhotoPickerOpen(false)}
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Item Assignee Modal ("Ai uống bia tick người đó") */}
-      <Modal
-        visible={activeItemIndex !== null && Boolean(draft.scannedItems[activeItemIndex])}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setActiveItemIndex(null)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setActiveItemIndex(null)}
-        >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            {activeItemIndex !== null && draft.scannedItems[activeItemIndex] ? (
-              <>
-                <Text style={styles.modalTitle}>
-                  {draft.scannedItems[activeItemIndex]!.name}
-                </Text>
-                <Text style={styles.modalSubtitle}>
-                  {`Giá món: ${formatVnd(
-                    draft.scannedItems[activeItemIndex]!.priceVnd
-                  )} · Không chọn ai = Cả bàn chia đều`}
-                </Text>
-
-                <ScrollView
-                  style={styles.itemMemberScroll}
-                  contentContainerStyle={styles.modalList}
-                >
-                  {members.map((member) => {
-                    const currentIds =
-                      draft.scannedItems[activeItemIndex!]!.assignedMemberIds ?? [];
-                    const checked = currentIds.includes(member.id);
-                    const initial = (member.displayName.trim()[0] ?? '?').toUpperCase();
-                    return (
-                      <Pressable
-                        key={member.id}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked }}
-                        onPress={() => toggleMemberForActiveItem(member.id)}
-                        style={[
-                          styles.payerRow,
-                          checked && styles.payerRowSelected,
-                        ]}
-                      >
-                        <View style={styles.memberAvatarRow}>
-                          <View style={styles.memberAvatarCircle}>
-                            <Text style={styles.memberAvatarLetter}>{initial}</Text>
-                          </View>
-                          <Text style={styles.payerName}>
-                            {member.displayName}
-                            {member.isMe ? ' (bạn)' : ''}
-                          </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.checkbox,
-                            checked ? styles.checkboxOn : styles.checkboxOff,
-                          ]}
-                        >
-                          {checked ? <IconCheck width={14} height={14} /> : null}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-
-                <View style={styles.modalActions}>
-                  <ChiaNeButton
-                    label="Chọn tất cả (Cả bàn)"
-                    variant="secondary"
-                    onPress={resetActiveItemToAll}
-                  />
-                  <ChiaNeButton
-                    label="Xong"
-                    variant="primary"
-                    onPress={() => setActiveItemIndex(null)}
-                  />
-                </View>
-              </>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Lucky Wheel Modal ("Vòng quay nhân phẩm") */}
+      {/* Lucky Wheel Modal */}
       <LuckyWheelModal
         visible={luckyWheelOpen}
         members={members}
@@ -1201,71 +1268,84 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   content: {
-    gap: 18,
+    gap: 16,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
   groupBadge: {
-    alignSelf: 'flex-start',
+    flexShrink: 1,
     backgroundColor: colors.lavender,
-    borderRadius: 15,
+    borderRadius: radii.pill,
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingVertical: 7,
   },
   groupBadgeText: {
     fontFamily: fonts.semiBold,
-    fontSize: 11,
+    fontSize: 12,
     color: colors.purple,
+  },
+  ocrCompactPill: {
+    backgroundColor: colors.forest,
+    borderRadius: radii.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    ...shadows.card,
+  },
+  ocrCompactPillText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.lime,
+  },
+  amountCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+    ...shadows.card,
+  },
+  amountEyebrow: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    color: colors.muted,
+    letterSpacing: 0.4,
+  },
+  amountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  amountInput: {
+    flex: 1,
+    fontFamily: fonts.bold,
+    fontSize: 38,
+    lineHeight: 50,
+    color: colors.forest,
+    paddingVertical: 2,
+  },
+  currencySymbol: {
+    fontFamily: fonts.semiBold,
+    fontSize: 22,
+    color: colors.muted,
+    marginLeft: 8,
   },
   ocrCard: {
     backgroundColor: colors.white,
     borderRadius: radii.card,
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 16,
-    gap: 12,
-  },
-  ocrHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  ocrTitleCol: {
-    flex: 1,
-    gap: 2,
-  },
-  ocrBadge: {
-    fontFamily: fonts.bold,
-    fontSize: 10,
-    color: colors.purple,
-    letterSpacing: 0.5,
-  },
-  ocrTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
-    color: colors.ink,
-  },
-  ocrSubtitle: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-    color: colors.muted,
-    lineHeight: 15,
-  },
-  ocrScanBtn: {
-    backgroundColor: colors.forest,
-    borderRadius: radii.button,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ocrScanBtnText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    color: colors.white,
+    padding: 14,
+    gap: 10,
+    ...shadows.card,
   },
   scanningBox: {
     backgroundColor: colors.lavender,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 10,
   },
   scanningText: {
@@ -1276,7 +1356,7 @@ const styles = StyleSheet.create({
   },
   ocrNoticeBox: {
     backgroundColor: colors.peach,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 10,
   },
   ocrNoticeSuccessBox: {
@@ -1445,39 +1525,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.coral,
   },
-  amountEyebrow: {
-    fontFamily: fonts.semiBold,
-    fontSize: 10,
-    color: colors.muted,
-    marginTop: 4,
-    marginBottom: -12,
-  },
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    paddingBottom: 6,
-  },
-  amountInput: {
-    flex: 1,
-    fontFamily: fonts.bold,
-    fontSize: 42,
-    lineHeight: 54,
-    color: colors.forest,
-    paddingVertical: 4,
-  },
-  currencySymbol: {
-    fontFamily: fonts.semiBold,
-    fontSize: 22,
-    color: colors.muted,
-    marginLeft: 8,
-  },
   fieldLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 12,
     color: colors.ink,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   categoryChipsRow: {
     flexDirection: 'row',
@@ -1486,17 +1538,20 @@ const styles = StyleSheet.create({
   settingsCard: {
     backgroundColor: colors.white,
     borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
     paddingHorizontal: 16,
+    ...shadows.card,
   },
   settingRow: {
-    minHeight: 56,
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
   payerSettingWrap: {
-    minHeight: 56,
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1504,7 +1559,7 @@ const styles = StyleSheet.create({
   },
   settingRowFlex: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1520,6 +1575,40 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 11,
     color: colors.purple,
+  },
+  quickSplitStripWrap: {
+    paddingBottom: 12,
+  },
+  quickSplitStrip: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  memberSplitChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.paper,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingVertical: 5,
+    paddingLeft: 5,
+    paddingRight: 10,
+    maxWidth: 132,
+  },
+  memberSplitChipOn: {
+    backgroundColor: colors.lime,
+    borderColor: colors.forest,
+  },
+  memberSplitName: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.muted,
+    flexShrink: 1,
+  },
+  memberSplitNameOn: {
+    fontFamily: fonts.semiBold,
+    color: colors.forest,
   },
   potToggleRow: {
     minHeight: 62,
@@ -1584,8 +1673,10 @@ const styles = StyleSheet.create({
   },
   noteBar: {
     minHeight: sizes.minTouchTarget,
-    backgroundColor: colors.lavender,
+    backgroundColor: colors.white,
     borderRadius: radii.input,
+    borderWidth: 1,
+    borderColor: colors.line,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1595,37 +1686,18 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: colors.purple,
+    color: colors.muted,
   },
   errorText: {
     fontFamily: fonts.medium,
     fontSize: 13,
     color: colors.coral,
   },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(23, 62, 50, 0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: colors.white,
-    borderRadius: radii.heroCard,
-    padding: 22,
-    gap: 14,
-  },
-  modalTitle: {
-    ...typography.title,
-    color: colors.ink,
-  },
   modalList: {
     gap: 8,
   },
   payerRow: {
-    minHeight: 48,
+    minHeight: 50,
     borderRadius: radii.iconBadge,
     backgroundColor: colors.paper,
     paddingHorizontal: 14,
@@ -1649,44 +1721,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  itemMemberScroll: {
-    maxHeight: 280,
-  },
   memberAvatarRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     flex: 1,
   },
-  memberAvatarCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.lavender,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  memberAvatarLetter: {
-    fontFamily: fonts.bold,
-    fontSize: 12,
-    color: colors.purple,
-  },
   quickDatesRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  modalSubtitle: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    lineHeight: 18,
-    color: colors.muted,
-  },
-  modalPhotoRow: {
-    marginVertical: 4,
-  },
   photoPickerOptions: {
     gap: 10,
-    marginTop: 6,
   },
   modalActions: {
     gap: 10,

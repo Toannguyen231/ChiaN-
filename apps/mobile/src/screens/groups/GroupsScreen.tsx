@@ -18,9 +18,12 @@ import IconArrow from '../../../assets/figma/icon-arrow.svg';
 import IconPlus from '../../../assets/figma/icon-plus.svg';
 import IconSearch from '../../../assets/figma/icon-search.svg';
 import {
-  ChiaNeChip,
+  AnimatedSegmentedControl,
+  CardListSkeleton,
+  FadeSlideIn,
   GroupCard,
   InviteLinkModal,
+  ScalePressable,
   ScreenContainer,
   StateView,
 } from '../../components';
@@ -28,7 +31,7 @@ import type { AppStackParamList, MainTabParamList } from '../../navigation/types
 import { ApiClientError } from '../../services/apiClient';
 import { extractInviteCode } from '../../services/invitesApi';
 import { useGroupsStore } from '../../store/groupsStore';
-import { colors, fonts, radii, sizes } from '../../theme/tokens';
+import { colors, fonts, radii, shadows, sizes } from '../../theme/tokens';
 
 export { extractInviteCode };
 
@@ -36,6 +39,8 @@ type GroupsNav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'GroupsTab'>,
   NativeStackNavigationProp<AppStackParamList>
 >;
+
+type GroupsTabMode = 'ACTIVE' | 'ARCHIVED';
 
 export function GroupsScreen() {
   const navigation = useNavigation<GroupsNav>();
@@ -137,22 +142,20 @@ export function GroupsScreen() {
         />
       </View>
 
-      <View style={styles.filterRow}>
-        <ChiaNeChip
-          label="Đang hoạt động"
-          active={!showArchived}
-          onPress={() => handleSwitchArchived(false)}
-        />
-        <ChiaNeChip
-          label="Đã lưu trữ"
-          active={showArchived}
-          onPress={() => handleSwitchArchived(true)}
+      <View style={styles.filterWrap}>
+        <AnimatedSegmentedControl<GroupsTabMode>
+          options={[
+            { key: 'ACTIVE', label: 'Đang hoạt động' },
+            { key: 'ARCHIVED', label: 'Đã lưu trữ' },
+          ]}
+          value={showArchived ? 'ARCHIVED' : 'ACTIVE'}
+          onChange={(next) => handleSwitchArchived(next === 'ARCHIVED')}
         />
       </View>
 
       {loading ? (
         <View style={styles.stateWrap}>
-          <StateView kind="loading" title="Đang tải danh sách nhóm..." />
+          <CardListSkeleton count={3} cardHeight={100} />
         </View>
       ) : errorText ? (
         <View style={styles.stateWrap}>
@@ -190,32 +193,34 @@ export function GroupsScreen() {
         </View>
       ) : (
         <View style={styles.list}>
-          {groups.map((group) => (
-            <GroupCard
-              key={group.id}
-              group={group}
-              subtitleMode="category"
-              onPress={() =>
-                navigation.navigate('GroupDetails', { groupId: group.id })
-              }
-            />
+          {groups.map((group, idx) => (
+            <FadeSlideIn key={group.id} index={idx}>
+              <GroupCard
+                group={group}
+                subtitleMode="category"
+                onPress={() =>
+                  navigation.navigate('GroupDetails', { groupId: group.id })
+                }
+              />
+            </FadeSlideIn>
           ))}
         </View>
       )}
 
-      <Pressable
+      <ScalePressable
         accessibilityRole="button"
         onPress={() => {
           setJoinModalVisible(true);
         }}
-        style={({ pressed }) => [styles.inviteCard, pressed && styles.pressed]}
+        scaleTo={0.98}
+        style={styles.inviteCard}
       >
         <View style={styles.inviteTextCol}>
           <Text style={styles.inviteTitle}>Có lời mời từ hội bạn?</Text>
           <Text style={styles.inviteSub}>Dán liên kết để tham gia nhóm</Text>
         </View>
         <IconArrow width={24} height={24} />
-      </Pressable>
+      </ScalePressable>
 
       <InviteLinkModal
         visible={joinModalVisible}
@@ -270,11 +275,9 @@ const styles = StyleSheet.create({
     color: colors.ink,
     height: '100%',
   },
-  filterRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-    marginBottom: 18,
+  filterWrap: {
+    marginTop: 14,
+    marginBottom: 16,
   },
   stateWrap: {
     marginBottom: 20,
@@ -284,16 +287,19 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   inviteCard: {
-    minHeight: 99,
+    minHeight: 94,
     backgroundColor: colors.lavender,
     borderRadius: radii.featureCard,
+    borderWidth: 1,
+    borderColor: 'rgba(110, 85, 165, 0.16)',
     paddingHorizontal: 18,
-    paddingVertical: 18,
+    paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
     marginTop: 4,
+    ...shadows.card,
   },
   inviteTextCol: {
     flex: 1,

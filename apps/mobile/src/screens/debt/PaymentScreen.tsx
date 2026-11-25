@@ -1,29 +1,48 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as Clipboard from 'expo-clipboard';
 import {
+  buildVietQrPayload,
   formatVnd,
+  type BankAccountPreviewDto,
   type GroupBalancesDto,
   type SettlementMethod,
 } from '@chiane/shared';
-import IconBank from '../../../assets/figma/icon-bank.svg';
-import IconCheckDark from '../../../assets/figma/icon-check-dark.svg';
+import IconCopy from '../../../assets/figma/icon-copy.svg';
 import IconReceipt from '../../../assets/figma/icon-receipt.svg';
 import IconShieldPurple from '../../../assets/figma/icon-shield-purple.svg';
 import {
+  AnimatedSegmentedControl,
   AppHeader,
   ChiaNeButton,
   InfoCard,
+  ScalePressable,
   ScreenContainer,
+  showToast,
   StateView,
+  VietQrMatrix,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
 import { ApiClientError } from '../../services/apiClient';
 import { settlementsApi } from '../../services/settlementsApi';
-import { colors, fonts, radii } from '../../theme/tokens';
+import { colors, fonts, radii, shadows, tabularNums } from '../../theme/tokens';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Payment'>;
+
+function buildCleanMemo(fromName: string, groupName: string): string {
+  const ascii = `${fromName} tra tien ${groupName}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/[^A-Za-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 48);
+  return ascii || 'ChiaNe thanh toan';
+}
 
 export function PaymentScreen({ navigation, route }: Props) {
   const { groupId, toMemberId, amountVnd } = route.params;
@@ -35,7 +54,7 @@ export function PaymentScreen({ navigation, route }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   const idempotencyKeyRef = useRef(
-    `chiane_cash_${groupId}_${toMemberId}_${Date.now()}_${Math.random()
+    `chiane_stl_${groupId}_${toMemberId}_${Date.now()}_${Math.random()
       .toString(36)
       .slice(2, 8)}`
   );
@@ -63,20 +82,52 @@ export function PaymentScreen({ navigation, route }: Props) {
     }, [loadBalances])
   );
 
+  const myMember = balances?.memberBalances.find((m) => m.isMe);
   const recipient = balances?.memberBalances.find((m) => m.memberId === toMemberId);
-  const bankPreview = recipient?.bankPreview ?? null;
+  const bankPreview: BankAccountPreviewDto | null = recipient?.bankPreview ?? null;
 
-  const handleContinue = async () => {
+  const memo = useMemo(
+    () =>
+      buildCleanMemo(
+        myMember?.displayName ?? 'Ban',
+        balances?.groupName ?? 'nhom'
+      ),
+    [balances?.groupName, myMember?.displayName]
+  );
+
+  const vietQrPayload = useMemo(() => {
+    if (!bankPreview?.hasRealBank) return null;
+    return buildVietQrPayload({
+      bankBin: bankPreview.bankBin,
+      accountNumber: bankPreview.bankAccountNumber,
+      amountVnd,
+      memo,
+    });
+  }, [amountVnd, bankPreview, memo]);
+
+  const handleCopyMemo = async () => {
+    await Clipboard.setStringAsync(memo);
+    showToast('Đã sao chép nội dung chuyển khoản');
+  };
+
+  const handleCopyAccount = async () => {
+    if (!bankPreview?.bankAccountNumber) return;
+    await Clipboard.setStringAsync(bankPreview.bankAccountNumber);
+    showToast('Đã sao chép số tài khoản');
+  };
+
+  const handleShareInfo = async () => {
+    if (!recipient) return;
+    const bankLine = bankPreview?.hasRealBank
+      ? `${bankPreview.bankName} · STK ${bankPreview.bankAccountNumber} (${bankPreview.bankAccountHolder || recipient.displayName})`
+      : `${recipient.displayName} (chưa cập nhật STK)`;
+    await Share.share({
+      message: `Thanh toán ChiaNè ${formatVnd(amountVnd)} cho ${bankLine}. Nội dung: ${memo}`,
+    });
+  };
+
+  const handleConfirmPaid = async () => {
     if (!balances || !recipient) return;
-
-    if (method === 'BANK_TRANSFER') {
-      navigation.navigate('BankTransferQr', {
-        groupId,
-        toMemberId,
-        amountVnd,
-      });
-      return;
-    }
 
     setSubmitting(true);
     setErrorText(null);
@@ -85,16 +136,21 @@ export function PaymentScreen({ navigation, route }: Props) {
         fromMemberId: balances.myMemberId,
         toMemberId,
         amountVnd,
-        method: 'CASH',
-        memo: 'Thanh toán tiền mặt',
+        method,
+        memo: method === 'BANK_TRANSFER' ? memo : 'Thanh toán tiền mặt',
         idempotencyKey: idempotencyKeyRef.current,
       });
+      showToast(
+        method === 'BANK_TRANSFER'
+          ? 'Đã báo chuyển khoản thành công!'
+          : 'Đã báo thanh toán tiền mặt!'
+      );
       navigation.replace('WaitingConfirmation', { settlementId: settlement.id });
     } catch (err) {
       setErrorText(
         err instanceof ApiClientError
           ? err.message
-          : 'Không thể báo thanh toán tiền mặt.'
+          : 'Không thể báo đã thanh toán. Vui lòng thử lại.'
       );
     } finally {
       setSubmitting(false);
@@ -110,12 +166,12 @@ export function PaymentScreen({ navigation, route }: Props) {
           <ChiaNeButton
             label={
               method === 'BANK_TRANSFER'
-                ? 'Tạo QR chuyển khoản'
+                ? 'Tôi đã chuyển khoản'
                 : 'Báo đã thanh toán tiền mặt'
             }
             variant="primary"
             loading={submitting}
-            onPress={() => void handleContinue()}
+            onPress={() => void handleConfirmPaid()}
           />
         ) : undefined
       }
@@ -138,80 +194,94 @@ export function PaymentScreen({ navigation, route }: Props) {
             <Text style={styles.heroEyebrow}>
               {`BẠN CHUYỂN CHO ${recipient.displayName.toUpperCase()}`}
             </Text>
-            <Text style={styles.heroAmount}>{formatVnd(amountVnd)}</Text>
+            <Text style={[styles.heroAmount, tabularNums]}>
+              {formatVnd(amountVnd)}
+            </Text>
             <Text style={styles.heroMeta}>
               {`${balances.groupName} · Đã tối ưu số dư`}
             </Text>
           </View>
 
-          <Text style={styles.sectionTitle}>Chọn cách thanh toán</Text>
-
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityState={{ checked: method === 'BANK_TRANSFER' }}
-            onPress={() => setMethod('BANK_TRANSFER')}
-            style={[
-              styles.methodCard,
-              method === 'BANK_TRANSFER' && styles.methodSelected,
+          <AnimatedSegmentedControl<SettlementMethod>
+            options={[
+              { key: 'BANK_TRANSFER', label: 'Chuyển khoản VietQR' },
+              { key: 'CASH', label: 'Tiền mặt' },
             ]}
-          >
-            <View style={styles.methodIconBox}>
-              <IconBank width={24} height={24} />
-            </View>
-            <View style={styles.methodTextCol}>
-              <Text style={styles.methodTitle}>Chuyển khoản ngân hàng</Text>
-              <Text style={styles.methodSub}>Quét QR, điền sẵn số tiền</Text>
-            </View>
-            {method === 'BANK_TRANSFER' ? (
-              <IconCheckDark width={21} height={21} />
-            ) : null}
-          </Pressable>
+            value={method}
+            onChange={setMethod}
+          />
 
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityState={{ checked: method === 'CASH' }}
-            onPress={() => setMethod('CASH')}
-            style={[
-              styles.methodCard,
-              method === 'CASH' && styles.methodSelected,
-            ]}
-          >
-            <View style={[styles.methodIconBox, styles.cashBadge]}>
-              <IconReceipt width={22} height={22} />
-            </View>
-            <View style={styles.methodTextCol}>
-              <Text style={styles.methodTitle}>Tiền mặt</Text>
-              <Text style={styles.methodSub}>
-                Gặp mặt trực tiếp, báo người nhận xác nhận
-              </Text>
-            </View>
-            {method === 'CASH' ? <IconCheckDark width={21} height={21} /> : null}
-          </Pressable>
+          {method === 'BANK_TRANSFER' ? (
+            <>
+              <View style={styles.qrCard}>
+                <VietQrMatrix payload={vietQrPayload} size={196} />
+                <Text style={styles.holderName}>
+                  {(bankPreview?.bankAccountHolder || recipient.displayName).toUpperCase()}
+                </Text>
+                <Text style={styles.bankMeta}>
+                  {bankPreview?.hasRealBank
+                    ? `${bankPreview.bankName ?? 'Ngân hàng'} · ${bankPreview.bankAccountNumber ?? ''}`
+                    : 'Người nhận chưa cập nhật tài khoản ngân hàng'}
+                </Text>
+                <Text
+                  style={[
+                    styles.qrNotice,
+                    !vietQrPayload && styles.qrNoticeWarning,
+                  ]}
+                >
+                  {vietQrPayload
+                    ? 'QR VIETQR CHUẨN NAPAS 247 · ĐIỀN SẴN SỐ TIỀN'
+                    : 'QR MINH HỌA · KHÔNG CHUYỂN TIỀN'}
+                </Text>
+              </View>
 
-          <InfoCard tone="white" style={styles.recipientCard}>
-            <Text style={styles.recipientEyebrow}>NGƯỜI NHẬN</Text>
-            <Text style={styles.recipientHolder}>
-              {bankPreview?.hasRealBank
-                ? (
-                    bankPreview.bankAccountHolder || recipient.displayName
-                  ).toUpperCase()
-                : recipient.displayName}
-            </Text>
-            {bankPreview?.hasRealBank ? (
-              <Text style={styles.recipientBank}>
-                {`${bankPreview.bankName ?? 'Ngân hàng'} · ${bankPreview.maskedAccountNumber ?? ''}`}
-              </Text>
-            ) : (
-              <Text style={styles.recipientMissing}>
-                Chưa thêm thông tin ngân hàng — bạn vẫn có thể chuyển ngoài app hoặc chọn tiền mặt.
-              </Text>
-            )}
-          </InfoCard>
+              <ScalePressable
+                accessibilityRole="button"
+                onPress={() => void handleCopyMemo()}
+                scaleTo={0.98}
+                style={styles.memoBox}
+              >
+                <Text style={styles.memoText} numberOfLines={1}>
+                  {`Nội dung: ${memo}`}
+                </Text>
+                <IconCopy width={20} height={20} />
+              </ScalePressable>
+
+              <View style={styles.secondaryRow}>
+                {bankPreview?.bankAccountNumber ? (
+                  <Pressable onPress={() => void handleCopyAccount()} hitSlop={8}>
+                    <Text style={styles.secondaryAction}>📋 Sao chép STK</Text>
+                  </Pressable>
+                ) : (
+                  <View />
+                )}
+                <Pressable onPress={() => void handleShareInfo()} hitSlop={8}>
+                  <Text style={styles.secondaryAction}>Chia sẻ thông tin</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <InfoCard tone="white" style={styles.cashCard}>
+              <View style={styles.cashTopRow}>
+                <View style={styles.cashBadge}>
+                  <IconReceipt width={22} height={22} />
+                </View>
+                <View style={styles.cashTextCol}>
+                  <Text style={styles.cashTitle}>Thanh toán trực tiếp bằng tiền mặt</Text>
+                  <Text style={styles.cashSub}>
+                    {`Gửi ${formatVnd(amountVnd)} cho ${recipient.displayName}, sau đó bấm nút xác nhận bên dưới để báo cho bạn ấy duyệt.`}
+                  </Text>
+                </View>
+              </View>
+            </InfoCard>
+          )}
 
           <View style={styles.safetyCard}>
-            <IconShieldPurple width={23} height={23} />
+            <IconShieldPurple width={22} height={22} />
             <Text style={styles.safetyText}>
-              Kiểm tra tên người nhận trước khi chuyển. ChiaNè không giữ tiền và không tự động trích tiền từ tài khoản của bạn.
+              {method === 'BANK_TRANSFER'
+                ? 'Kiểm tra kỹ tên người nhận trước khi chuyển. Chỉ bấm "Tôi đã chuyển khoản" sau khi đã thanh toán xong.'
+                : 'Số dư trong nhóm sẽ được gạch nợ ngay sau khi người nhận xác nhận đã nhận tiền.'}
             </Text>
           </View>
         </View>
@@ -230,12 +300,13 @@ const styles = StyleSheet.create({
     color: colors.coral,
   },
   forestHero: {
-    minHeight: 158,
+    minHeight: 144,
     backgroundColor: colors.forest,
     borderRadius: radii.heroCard,
     padding: 20,
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 6,
+    ...shadows.hero,
   },
   heroEyebrow: {
     fontFamily: fonts.semiBold,
@@ -244,8 +315,8 @@ const styles = StyleSheet.create({
   },
   heroAmount: {
     fontFamily: fonts.bold,
-    fontSize: 38,
-    lineHeight: 48,
+    fontSize: 36,
+    lineHeight: 46,
     color: colors.white,
   },
   heroMeta: {
@@ -253,72 +324,93 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.onForestLabel,
   },
-  sectionTitle: {
-    fontFamily: fonts.semiBold,
-    fontSize: 17,
-    color: colors.ink,
-    marginTop: 6,
-  },
-  methodCard: {
-    minHeight: 84,
+  qrCard: {
     backgroundColor: colors.white,
-    borderRadius: radii.card,
+    borderRadius: radii.featureCard,
     borderWidth: 1,
     borderColor: colors.line,
+    padding: 20,
+    alignItems: 'center',
+    gap: 6,
+    ...shadows.card,
+  },
+  holderName: {
+    fontFamily: fonts.semiBold,
+    fontSize: 14,
+    color: colors.ink,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  bankMeta: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.muted,
+    textAlign: 'center',
+  },
+  qrNotice: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    color: colors.forest,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  qrNoticeWarning: {
+    color: colors.coral,
+  },
+  memoBox: {
+    minHeight: 54,
+    backgroundColor: colors.lavender,
+    borderRadius: radii.input,
     paddingHorizontal: 16,
-    paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  methodSelected: {
-    borderColor: colors.forest,
-    borderWidth: 1.5,
+  memoText: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.purple,
   },
-  methodIconBox: {
-    width: 48,
-    height: 48,
+  secondaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 6,
+  },
+  secondaryAction: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
+  },
+  cashCard: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    ...shadows.card,
+  },
+  cashTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  cashBadge: {
+    width: 44,
+    height: 44,
     borderRadius: 14,
-    backgroundColor: colors.lime,
+    backgroundColor: colors.lavender,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cashBadge: {
-    backgroundColor: colors.lavender,
-  },
-  methodTextCol: {
+  cashTextCol: {
     flex: 1,
     gap: 4,
   },
-  methodTitle: {
+  cashTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
     color: colors.ink,
   },
-  methodSub: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.muted,
-  },
-  recipientCard: {
-    gap: 6,
-  },
-  recipientEyebrow: {
-    fontFamily: fonts.semiBold,
-    fontSize: 10,
-    color: colors.muted,
-  },
-  recipientHolder: {
-    fontFamily: fonts.bold,
-    fontSize: 16,
-    color: colors.ink,
-  },
-  recipientBank: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.muted,
-  },
-  recipientMissing: {
+  cashSub: {
     fontFamily: fonts.regular,
     fontSize: 12,
     lineHeight: 18,
@@ -327,7 +419,7 @@ const styles = StyleSheet.create({
   safetyCard: {
     backgroundColor: colors.lavender,
     borderRadius: radii.card,
-    padding: 16,
+    padding: 15,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,

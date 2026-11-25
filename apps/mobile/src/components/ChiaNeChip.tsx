@@ -1,6 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, type ViewStyle } from 'react-native';
 import { colors, fonts, radii } from '../theme/tokens';
+import { ScalePressable } from './motion/ScalePressable';
 
 export interface ChiaNeChipProps {
   label: string;
@@ -16,11 +17,12 @@ export function ChiaNeChip({
   style,
 }: ChiaNeChipProps) {
   return (
-    <Pressable
+    <ScalePressable
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityState={onPress ? { selected: active } : undefined}
       disabled={!onPress}
       onPress={onPress}
+      scaleTo={0.96}
       style={[
         styles.chip,
         active ? styles.active : styles.inactive,
@@ -30,7 +32,7 @@ export function ChiaNeChip({
       <Text style={[styles.label, active ? styles.activeLabel : styles.inactiveLabel]}>
         {label}
       </Text>
-    </Pressable>
+    </ScalePressable>
   );
 }
 

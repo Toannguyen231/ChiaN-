@@ -1,12 +1,13 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { formatVnd, type GroupCategory, type GroupSummaryDto } from '@chiane/shared';
 import IconChevron from '../../assets/figma/icon-chevron.svg';
 import IconFood from '../../assets/figma/icon-food.svg';
 import IconHome from '../../assets/figma/icon-home.svg';
 import IconReceipt from '../../assets/figma/icon-receipt.svg';
 import IconTrip from '../../assets/figma/icon-trip.svg';
-import { colors, fonts, radii } from '../theme/tokens';
+import { colors, fonts, radii, shadows, tabularNums } from '../theme/tokens';
+import { ScalePressable } from './motion/ScalePressable';
 
 export const GROUP_CATEGORY_META: Record<
   GroupCategory,
@@ -52,10 +53,11 @@ export function GroupCard({
   }
 
   return (
-    <Pressable
+    <ScalePressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      scaleTo={0.98}
+      style={styles.card}
     >
       <View style={[styles.badge, { backgroundColor: meta.badgeBg }]}>
         <Icon width={24} height={24} />
@@ -67,28 +69,28 @@ export function GroupCard({
         <Text style={styles.subtitle} numberOfLines={1}>
           {subtitle}
         </Text>
-        <Text style={[styles.balance, { color: balanceColor }]} numberOfLines={1}>
+        <Text style={[styles.balance, tabularNums, { color: balanceColor }]} numberOfLines={1}>
           {balanceText}
         </Text>
       </View>
       <IconChevron width={20} height={20} />
-    </Pressable>
+    </ScalePressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 104,
+    minHeight: 100,
     backgroundColor: colors.white,
     borderRadius: radii.featureCard,
+    borderWidth: 1,
+    borderColor: colors.line,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 15,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-  },
-  pressed: {
-    opacity: 0.9,
+    ...shadows.card,
   },
   badge: {
     width: 48,

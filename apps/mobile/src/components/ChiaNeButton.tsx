@@ -1,12 +1,12 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
   type ViewStyle,
 } from 'react-native';
-import { colors, radii, sizes, typography } from '../theme/tokens';
+import { colors, radii, shadows, sizes, typography } from '../theme/tokens';
+import { ScalePressable } from './motion/ScalePressable';
 
 export type ChiaNeButtonVariant = 'primary' | 'secondary' | 'quiet' | 'disabled';
 
@@ -52,17 +52,16 @@ export function ChiaNeButton({
     effectiveVariant === 'primary' ? colors.white : colors.forest;
 
   return (
-    <Pressable
+    <ScalePressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        ...containerStyle,
-        pressed && !isDisabled ? styles.pressed : null,
-      ]}
+      scaleTo={0.98}
+      activeOpacity={0.93}
+      style={containerStyle}
     >
       {loading ? (
         <ActivityIndicator size="small" color={indicatorColor} />
@@ -71,7 +70,7 @@ export function ChiaNeButton({
           {label}
         </Text>
       )}
-    </Pressable>
+    </ScalePressable>
   );
 }
 
@@ -87,9 +86,11 @@ const styles = StyleSheet.create({
   },
   primary: {
     backgroundColor: colors.forest,
+    ...shadows.card,
   },
   secondary: {
     backgroundColor: colors.lime,
+    ...shadows.card,
   },
   quiet: {
     backgroundColor: colors.white,
@@ -98,10 +99,6 @@ const styles = StyleSheet.create({
   },
   disabled: {
     backgroundColor: colors.line,
-  },
-  pressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.99 }],
   },
   label: {
     ...typography.button,

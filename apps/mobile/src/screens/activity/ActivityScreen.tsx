@@ -13,14 +13,22 @@ import {
 } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { ActivityItemDto } from '@chiane/shared';
+import type { ActivityItemDto, GroupSummaryDto } from '@chiane/shared';
 import IconBell from '../../../assets/figma/icon-bell.svg';
 import IconCheckDark from '../../../assets/figma/icon-check-dark.svg';
+import IconChevron from '../../../assets/figma/icon-chevron.svg';
 import IconLink from '../../../assets/figma/icon-link.svg';
 import IconPlus from '../../../assets/figma/icon-plus.svg';
 import IconReceipt from '../../../assets/figma/icon-receipt.svg';
 import {
+  AnimatedSegmentedControl,
+  BottomSheetModal,
+  CardListSkeleton,
+  ChiaNeButton,
+  FadeSlideIn,
+  GROUP_CATEGORY_META,
   IconClock,
+  ScalePressable,
   ScreenContainer,
   StateView,
 } from '../../components';
@@ -29,7 +37,7 @@ import { activityApi, type ActivityFilter } from '../../services/activityApi';
 import { ApiClientError } from '../../services/apiClient';
 import { settlementsApi } from '../../services/settlementsApi';
 import { useGroupsStore } from '../../store/groupsStore';
-import { colors, fonts, radii, sizes } from '../../theme/tokens';
+import { colors, fonts, radii, shadows, sizes } from '../../theme/tokens';
 
 type ActivityNav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'ActivityTab'>,
@@ -84,6 +92,7 @@ export function ActivityScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [pickerVisible, setPickerVisible] = useState(false);
 
   const loadFeed = useCallback(
     async (nextFilter: ActivityFilter, isRefresh = false) => {
@@ -131,10 +140,15 @@ export function ActivityScreen() {
     if (activeGroups.length === 1) {
       navigation.navigate('AddExpense', { groupId: activeGroups[0]!.id });
     } else if (activeGroups.length > 1) {
-      navigation.navigate('DashboardTab');
+      setPickerVisible(true);
     } else {
       navigation.navigate('CreateGroup');
     }
+  };
+
+  const handlePickGroup = (group: GroupSummaryDto) => {
+    setPickerVisible(false);
+    navigation.navigate('AddExpense', { groupId: group.id });
   };
 
   const handleTapActivity = async (item: ActivityItemDto) => {
@@ -165,10 +179,13 @@ export function ActivityScreen() {
           );
           return;
         } catch {
-          // fallback to group balances
+          // fallback to group balances tab
         }
       }
-      navigation.navigate('GroupBalances', { groupId: item.groupId });
+      navigation.navigate('GroupDetails', {
+        groupId: item.groupId,
+        initialTab: 'BALANCES',
+      });
       return;
     }
 
@@ -239,33 +256,16 @@ export function ActivityScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.segmentWrap}>
-        {FILTERS.map((f) => {
-          const active = filter === f.key;
-          return (
-            <Pressable
-              key={f.key}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              onPress={() => setFilter(f.key)}
-              style={[styles.segmentItem, active && styles.segmentItemActive]}
-            >
-              <Text
-                style={[
-                  styles.segmentLabel,
-                  active && styles.segmentLabelActive,
-                ]}
-              >
-                {f.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <AnimatedSegmentedControl<ActivityFilter>
+        options={FILTERS}
+        value={filter}
+        onChange={setFilter}
+        style={styles.segmentWrap}
+      />
 
       {loading ? (
         <View style={styles.stateWrap}>
-          <StateView kind="loading" title="Đang tải hoạt động..." />
+          <CardListSkeleton count={4} cardHeight={86} />
         </View>
       ) : errorText ? (
         <View style={styles.stateWrap}>
@@ -287,32 +287,34 @@ export function ActivityScreen() {
         </View>
       ) : (
         <View style={styles.feed}>
-          {groupedSections.map((section) => (
+          {groupedSections.map((section, sectionIdx) => (
             <View key={section.header} style={styles.sectionBlock}>
               <Text style={styles.dateHeader}>{section.header}</Text>
               <View style={styles.sectionList}>
-                {section.items.map((item) => (
-                  <Pressable
+                {section.items.map((item, itemIdx) => (
+                  <FadeSlideIn
                     key={item.id}
-                    onPress={() => void handleTapActivity(item)}
-                    style={({ pressed }) => [
-                      styles.card,
-                      pressed && styles.pressed,
-                    ]}
+                    index={sectionIdx * 2 + itemIdx}
                   >
-                    {renderBadge(item)}
-                    <View style={styles.cardTextCol}>
-                      <Text style={styles.cardTitle} numberOfLines={2}>
-                        {item.title}
-                      </Text>
-                      <Text style={styles.cardSub} numberOfLines={2}>
-                        {item.subtitle}
-                      </Text>
-                      <Text style={styles.cardTime}>
-                        {`${formatClockTime(item.createdAt)} · ${item.groupName}`}
-                      </Text>
-                    </View>
-                  </Pressable>
+                    <ScalePressable
+                      onPress={() => void handleTapActivity(item)}
+                      scaleTo={0.98}
+                      style={styles.card}
+                    >
+                      {renderBadge(item)}
+                      <View style={styles.cardTextCol}>
+                        <Text style={styles.cardTitle} numberOfLines={2}>
+                          {item.title}
+                        </Text>
+                        <Text style={styles.cardSub} numberOfLines={2}>
+                          {item.subtitle}
+                        </Text>
+                        <Text style={styles.cardTime}>
+                          {`${formatClockTime(item.createdAt)} · ${item.groupName}`}
+                        </Text>
+                      </View>
+                    </ScalePressable>
+                  </FadeSlideIn>
                 ))}
               </View>
             </View>
@@ -322,6 +324,49 @@ export function ActivityScreen() {
           </Text>
         </View>
       )}
+
+      <BottomSheetModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        title="Chọn nhóm để thêm khoản chi"
+        subtitle="Chạm vào nhóm bạn muốn ghi khoản chi ngay"
+        scrollable
+        footer={
+          <ChiaNeButton
+            label="Đóng"
+            variant="quiet"
+            onPress={() => setPickerVisible(false)}
+          />
+        }
+      >
+        <View style={styles.pickerList}>
+          {activeGroups.map((group) => {
+            const meta = GROUP_CATEGORY_META[group.category];
+            const { Icon } = meta;
+            return (
+              <ScalePressable
+                key={group.id}
+                onPress={() => handlePickGroup(group)}
+                scaleTo={0.98}
+                style={styles.pickerRow}
+              >
+                <View style={[styles.pickerBadge, { backgroundColor: meta.badgeBg }]}>
+                  <Icon width={20} height={20} />
+                </View>
+                <View style={styles.pickerTextCol}>
+                  <Text style={styles.pickerTitle} numberOfLines={1}>
+                    {group.name}
+                  </Text>
+                  <Text style={styles.pickerSub}>
+                    {group.memberCount} thành viên · {group.expenseCount} khoản chi
+                  </Text>
+                </View>
+                <IconChevron width={18} height={18} />
+              </ScalePressable>
+            );
+          })}
+        </View>
+      </BottomSheetModal>
     </ScreenContainer>
   );
 }
@@ -350,32 +395,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   segmentWrap: {
-    height: 44,
-    backgroundColor: colors.white,
-    borderRadius: 22,
-    padding: 4,
-    flexDirection: 'row',
     marginBottom: 18,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  segmentItem: {
-    flex: 1,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  segmentItemActive: {
-    backgroundColor: colors.lime,
-  },
-  segmentLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 12,
-    color: colors.muted,
-  },
-  segmentLabelActive: {
-    fontFamily: fonts.semiBold,
-    color: colors.forest,
   },
   stateWrap: {
     marginTop: 8,
@@ -395,13 +415,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   card: {
-    minHeight: 96,
+    minHeight: 92,
     backgroundColor: colors.white,
     borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
     padding: 15,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
+    ...shadows.card,
   },
   badge: {
     width: 39,
@@ -437,5 +460,39 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.muted,
     marginTop: 4,
+  },
+  pickerList: {
+    gap: 10,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: radii.input,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  pickerBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  pickerTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 14,
+    color: colors.ink,
+  },
+  pickerSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.muted,
   },
 });

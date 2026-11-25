@@ -15,6 +15,11 @@ export const colors = {
   // Dark-surface text tints observed directly in Figma Screens 01 & 04
   onForestMuted: '#DCE7D8',
   onForestLabel: '#CEDFCB',
+
+  // Subtle pastel tint surfaces harmonious with Design System
+  sage: '#E4F0E7',
+  butter: '#FBF3D5',
+  butterInk: '#6B5416',
 } as const;
 
 export const fonts = {
@@ -117,3 +122,31 @@ export const sizes = {
   minTouchTarget: 48,
   maxContentWidth: 460,
 } as const;
+
+export const shadows = {
+  card: {
+    shadowColor: '#173E32',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  elevated: {
+    shadowColor: '#173E32',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 4,
+  },
+  hero: {
+    shadowColor: '#173E32',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 6,
+  },
+} as const;
+
+export const tabularNums = {
+  fontVariant: ['tabular-nums'] as ['tabular-nums'],
+};

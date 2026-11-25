@@ -1,7 +1,6 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -20,25 +19,35 @@ import {
   formatVnd,
   parseVndInput,
   type ExpenseDto,
+  type GroupBalancesDto,
   type GroupPotDto,
   type GroupPotMemberSummaryDto,
   type SettlementDto,
 } from '@chiane/shared';
+import IconArrow from '../../../assets/figma/icon-arrow.svg';
 import IconChevron from '../../../assets/figma/icon-chevron.svg';
 import IconPlusLight from '../../../assets/figma/icon-plus-light.svg';
-import IconPlus from '../../../assets/figma/icon-plus.svg';
 import {
+  AnimatedNumber,
+  AnimatedSegmentedControl,
   AppHeader,
+  AvatarBadge,
+  BottomSheetModal,
+  CardListSkeleton,
   ChiaNeButton,
   ChiaNeChip,
   ChiaNeInput,
   ConfirmDialog,
   ExpenseRow,
+  FadeSlideIn,
   GROUP_CATEGORY_META,
   IconGear,
   IconUserPlus,
+  InfoCard,
   LuckyWheelModal,
+  ScalePressable,
   ScreenContainer,
+  showToast,
   StateView,
   VietQrMatrix,
 } from '../../components';
@@ -50,7 +59,14 @@ import { settlementsApi } from '../../services/settlementsApi';
 import { useAuthStore } from '../../store/authStore';
 import { useExpenseDraftStore } from '../../store/expenseDraftStore';
 import { useGroupsStore } from '../../store/groupsStore';
-import { colors, fonts, radii, sizes, typography } from '../../theme/tokens';
+import {
+  colors,
+  fonts,
+  radii,
+  shadows,
+  sizes,
+  tabularNums,
+} from '../../theme/tokens';
 import {
   calculateTripRecap,
   type TripRecapData,
@@ -67,12 +83,14 @@ function formatMonthBucket(iso: string): string {
 }
 
 export function GroupDetailsScreen({ navigation, route }: Props) {
-  const { groupId } = route.params;
+  const { groupId, initialTab, justCreated } = route.params;
   const cachedGroup = useGroupsStore((s) => s.groupDetailsById[groupId]);
   const fetchGroupDetail = useGroupsStore((s) => s.fetchGroupDetail);
 
   const [group, setGroup] = useState(cachedGroup ?? null);
-  const [activeTab, setActiveTab] = useState<DetailTab>('EXPENSES');
+  const [balances, setBalances] = useState<GroupBalancesDto | null>(null);
+  const [activeTab, setActiveTab] = useState<DetailTab>(initialTab ?? 'EXPENSES');
+  const [inviteBannerDismissed, setInviteBannerDismissed] = useState(false);
   const [loading, setLoading] = useState(!cachedGroup);
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -99,8 +117,13 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
   const [potPayMethod, setPotPayMethod] = useState<'BANK_TRANSFER' | 'CASH'>('BANK_TRANSFER');
   const [custodianPickerOpen, setCustodianPickerOpen] = useState(false);
   const [updatingCustodian, setUpdatingCustodian] = useState(false);
-  const [copiedQrNotice, setCopiedQrNotice] = useState<string | null>(null);
   const [refundQrTarget, setRefundQrTarget] = useState<GroupPotMemberSummaryDto | null>(null);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   const loadGroup = useCallback(
     async (isRefresh = false) => {
@@ -111,13 +134,17 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
       }
       setErrorText(null);
       try {
-        const [detail, potRes] = await Promise.all([
+        const [detail, potRes, balancesRes] = await Promise.all([
           fetchGroupDetail(groupId),
           potApi.getPot(groupId).catch(() => null),
+          settlementsApi.getBalances(groupId).catch(() => null),
         ]);
         setGroup(detail);
         if (potRes) {
           setPot(potRes);
+        }
+        if (balancesRes) {
+          setBalances(balancesRes);
         }
       } catch (err) {
         setErrorText(
@@ -151,6 +178,12 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
     return Array.from(buckets.entries()).map(([label, items]) => ({ label, items }));
   }, [group]);
 
+  const handleCopyInvite = async () => {
+    if (!group) return;
+    await Clipboard.setStringAsync(group.inviteLink);
+    showToast('Đã sao chép liên kết mời!');
+  };
+
   const handleAddMemberSubmit = async () => {
     const trimmed = newMemberName.trim();
     if (!trimmed) {
@@ -167,6 +200,7 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
       setAddMemberOpen(false);
       setNewMemberName('');
       setNewMemberPhone('');
+      showToast(`Đã thêm ${trimmed} vào nhóm!`);
       await loadGroup(false);
     } catch (err) {
       setAddMemberError(
@@ -228,6 +262,7 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
           webGlobal.document.body.removeChild(link);
         }
         URL.revokeObjectURL(url);
+        showToast('Đã tải xuống tệp Excel!');
         return;
       }
 
@@ -271,14 +306,12 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
     setPotError(null);
     setPotPayMethod('BANK_TRANSFER');
     setCustodianPickerOpen(false);
-    setCopiedQrNotice(null);
     setPotContributeOpen(true);
   };
 
   const copyQrValue = async (label: string, value: string) => {
     await Clipboard.setStringAsync(value);
-    setCopiedQrNotice(`Đã sao chép ${label}!`);
-    setTimeout(() => setCopiedQrNotice(null), 2200);
+    showToast(`Đã sao chép ${label}!`);
   };
 
   const handleChangeCustodian = async (memberId: string) => {
@@ -289,6 +322,7 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
       const nextPot = await potApi.setCustodian(group.id, memberId);
       setPot(nextPot);
       setCustodianPickerOpen(false);
+      showToast('Đã đổi Thủ quỹ giữ tiền!');
     } catch (err) {
       setPotError(
         err instanceof ApiClientError
@@ -325,6 +359,7 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
       });
       setPot(res.pot);
       setPotContributeOpen(false);
+      showToast('Đã ghi nhận tiền góp quỹ!');
       void loadGroup(false);
     } catch (err) {
       setPotError(
@@ -356,37 +391,6 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
         )
       : 0;
 
-  const socialFunRow = group ? (
-    <View style={styles.socialFunRow}>
-      {group.members.length >= 2 && !group.isArchived ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setLuckyWheelOpen(true)}
-          style={({ pressed }) => [styles.funPillBtn, styles.funPillLavender, pressed && styles.pressed]}
-        >
-          <Text style={styles.funPillLavenderText}>🎡 Quay người bao</Text>
-        </Pressable>
-      ) : null}
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => void handleOpenRecap()}
-        style={({ pressed }) => [styles.funPillBtn, styles.funPillForest, pressed && styles.pressed]}
-      >
-        <Text style={styles.funPillForestText}>🏆 Tổng kết chuyến đi</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        disabled={exportingExcel}
-        onPress={() => void handleExportExcel()}
-        style={({ pressed }) => [styles.funPillBtn, styles.funPillLime, pressed && styles.pressed]}
-      >
-        <Text style={styles.funPillLimeText}>
-          {exportingExcel ? '⏳ Đang xuất...' : '📊 Xuất Excel'}
-        </Text>
-      </Pressable>
-    </View>
-  ) : null;
-
   const custodian = pot?.custodian ?? null;
   const contributorName =
     group?.members.find((m) => m.id === (potMemberId || group.myMemberId))
@@ -414,8 +418,87 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
         })
       : null;
 
-  const potSummaryCard = group ? (
-    hasPotActivity && pot ? (
+  const myBalancePill = group
+    ? group.myBalanceVnd > 0
+      ? {
+          text: `Bạn được nhận ${formatVnd(group.myBalanceVnd)}`,
+          bg: colors.lime,
+          fg: colors.forest,
+        }
+      : group.myBalanceVnd < 0
+        ? {
+            text: `Bạn cần trả ${formatVnd(Math.abs(group.myBalanceVnd))}`,
+            bg: colors.peach,
+            fg: colors.coral,
+          }
+        : {
+            text: 'Đã cân bằng ✓',
+            bg: colors.white,
+            fg: colors.forest,
+          }
+    : null;
+
+  const showUtilityBar =
+    group &&
+    ((group.members.length >= 2 && !group.isArchived) ||
+      (!hasPotActivity && !group.isArchived) ||
+      group.expenses.length > 0);
+
+  const utilityBar =
+    group && showUtilityBar ? (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.utilityBarRow}
+      >
+        {group.members.length >= 2 && !group.isArchived ? (
+          <ScalePressable
+            accessibilityRole="button"
+            onPress={() => setLuckyWheelOpen(true)}
+            scaleTo={0.95}
+            style={[styles.utilPill, styles.utilPillLavender]}
+          >
+            <Text style={styles.utilPillLavenderText}>🎡 Quay người bao</Text>
+          </ScalePressable>
+        ) : null}
+        {!hasPotActivity && !group.isArchived ? (
+          <ScalePressable
+            accessibilityRole="button"
+            onPress={handleOpenPotContribute}
+            scaleTo={0.95}
+            style={[styles.utilPill, styles.utilPillSage]}
+          >
+            <Text style={styles.utilPillForestText}>🐷 Mở quỹ chung</Text>
+          </ScalePressable>
+        ) : null}
+        {group.expenses.length > 0 ? (
+          <>
+            <ScalePressable
+              accessibilityRole="button"
+              onPress={() => void handleOpenRecap()}
+              scaleTo={0.95}
+              style={[styles.utilPill, styles.utilPillForest]}
+            >
+              <Text style={styles.utilPillLimeText}>🏆 Tổng kết</Text>
+            </ScalePressable>
+            <ScalePressable
+              accessibilityRole="button"
+              disabled={exportingExcel}
+              onPress={() => void handleExportExcel()}
+              scaleTo={0.95}
+              style={[styles.utilPill, styles.utilPillLime]}
+            >
+              <Text style={styles.utilPillForestText}>
+                {exportingExcel ? '⏳ Đang xuất...' : '📊 Xuất Excel'}
+              </Text>
+            </ScalePressable>
+          </>
+        ) : null}
+      </ScrollView>
+    ) : null;
+
+  const potSummaryCard =
+    group && hasPotActivity && pot ? (
       <View style={styles.potCard}>
         <View style={styles.potHeaderRow}>
           <View style={styles.potTitleCol}>
@@ -423,27 +506,29 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
             <Text
               style={[
                 styles.potRemainingText,
+                tabularNums,
                 pot.remainingPotVnd < 0 && styles.potNegativeText,
               ]}
             >
-              {`Quỹ còn lại: ${formatVnd(pot.remainingPotVnd)} / ${formatVnd(
+              {`Còn lại: ${formatVnd(pot.remainingPotVnd)} / ${formatVnd(
                 pot.totalContributedVnd
               )}`}
             </Text>
           </View>
           {!group.isArchived ? (
-            <Pressable
+            <ScalePressable
               accessibilityRole="button"
               onPress={handleOpenPotContribute}
-              style={({ pressed }) => [styles.potAddBtn, pressed && styles.pressed]}
+              scaleTo={0.95}
+              style={styles.potAddBtn}
             >
               <Text style={styles.potAddBtnText}>+ Góp quỹ</Text>
-            </Pressable>
+            </ScalePressable>
           ) : null}
         </View>
         {custodian ? (
           <Text style={styles.potCustodianLine} numberOfLines={1}>
-            {`🏦 Thủ quỹ giữ tiền: ${custodian.displayName}${
+            {`🏦 Thủ quỹ: ${custodian.displayName}${
               custodian.bankPreview.bankName
                 ? ` (${custodian.bankPreview.bankName})`
                 : ''
@@ -463,7 +548,7 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
           />
         </View>
         <View style={styles.potFooterRow}>
-          <Text style={styles.potMetaText}>
+          <Text style={[styles.potMetaText, tabularNums]}>
             {`Đã chi từ quỹ: ${formatVnd(pot.totalSpentFromPotVnd)}`}
           </Text>
           <Pressable
@@ -475,28 +560,318 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
           </Pressable>
         </View>
       </View>
-    ) : (
-      <View style={styles.potEmptyCard}>
-        <View style={styles.potTitleCol}>
-          <Text style={styles.potTitle}>🐷 Quỹ chung nhóm (Heo đất)</Text>
-          <Text style={styles.potMetaText}>
-            {custodian
-              ? `Góp trước vào TK Thủ quỹ (${custodian.displayName}), chi tới đâu trừ tới đó.`
-              : 'Góp trước đầu chuyến, chi tới đâu trừ quỹ tới đó.'}
-          </Text>
+    ) : null;
+
+  const renderBalancesTab = () => {
+    if (!group) return null;
+    const pendingList = balances?.pendingSettlements ?? [];
+    const suggestedList = balances?.suggestedTransfers ?? [];
+    const memberBalances = balances?.memberBalances;
+    const isAllBalanced = balances ? suggestedList.length === 0 : false;
+
+    return (
+      <View style={styles.tabBody}>
+        {balances ? (
+          <FadeSlideIn index={0}>
+            <InfoCard tone="lime" style={styles.balanceHeroCard}>
+              <Text style={styles.balanceHeroTitle}>
+                {isAllBalanced
+                  ? 'Cả nhóm đã cân bằng! 🎉'
+                  : 'Ít chuyển khoản, thêm thảnh thơi.'}
+              </Text>
+              <Text style={styles.balanceHeroSub}>
+                {isAllBalanced
+                  ? 'Mọi khoản chi trong nhóm đều đã được thanh toán sòng phẳng.'
+                  : `Gộp gọn thành ${suggestedList.length} lượt chuyển. Số tiền mỗi người không thay đổi.`}
+              </Text>
+            </InfoCard>
+          </FadeSlideIn>
+        ) : null}
+
+        {pendingList.length > 0 ? (
+          <View style={styles.sectionBlock}>
+            <Text style={styles.sectionHeading}>Đang chờ xác nhận</Text>
+            <View style={styles.transferList}>
+              {pendingList.map((stl) => (
+                <ScalePressable
+                  key={stl.id}
+                  onPress={() =>
+                    navigation.navigate(
+                      stl.canConfirm
+                        ? 'ConfirmPaymentReceived'
+                        : 'WaitingConfirmation',
+                      { settlementId: stl.id }
+                    )
+                  }
+                  scaleTo={0.98}
+                  style={styles.pendingRow}
+                >
+                  <View style={styles.pendingTextCol}>
+                    <Text style={styles.pendingTitle}>
+                      {`${stl.fromName} → ${stl.toName}`}
+                    </Text>
+                    <Text style={styles.pendingSub}>
+                      {stl.canConfirm
+                        ? 'Chạm để xác nhận đã nhận tiền'
+                        : `Chờ ${stl.toName} xác nhận`}
+                    </Text>
+                  </View>
+                  <View style={styles.pendingRight}>
+                    <Text style={[styles.transferAmount, tabularNums]}>
+                      {formatVnd(stl.amountVnd)}
+                    </Text>
+                    <IconChevron width={16} height={16} />
+                  </View>
+                </ScalePressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {suggestedList.length > 0 ? (
+          <View style={styles.sectionBlock}>
+            <Text style={styles.sectionHeading}>Chuyển thế này là gọn nhất</Text>
+            <View style={styles.transferList}>
+              {suggestedList.map((transfer, idx) => {
+                const canRemind = transfer.isToMe && group.myRole !== 'GUEST';
+                const canPay = transfer.isFromMe;
+                return (
+                  <FadeSlideIn
+                    key={`${transfer.fromMemberId}-${transfer.toMemberId}`}
+                    index={idx}
+                  >
+                    <View style={styles.transferCard}>
+                      <View style={styles.transferTopRow}>
+                        <View style={styles.transferPeople}>
+                          <AvatarBadge name={transfer.fromName} size={28} />
+                          <Text style={styles.transferPerson} numberOfLines={1}>
+                            {transfer.isFromMe ? 'Bạn' : transfer.fromName}
+                          </Text>
+                          <IconArrow width={16} height={16} />
+                          <AvatarBadge name={transfer.toName} size={28} />
+                          <Text style={styles.transferPerson} numberOfLines={1}>
+                            {transfer.isToMe ? 'Bạn' : transfer.toName}
+                          </Text>
+                        </View>
+                        <Text style={[styles.transferAmount, tabularNums]}>
+                          {formatVnd(transfer.amountVnd)}
+                        </Text>
+                      </View>
+
+                      {canPay || canRemind ? (
+                        <View style={styles.transferActionRow}>
+                          {canPay ? (
+                            <ScalePressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                navigation.navigate('Payment', {
+                                  groupId: group.id,
+                                  toMemberId: transfer.toMemberId,
+                                  amountVnd: transfer.amountVnd,
+                                })
+                              }
+                              scaleTo={0.96}
+                              style={styles.payNowBtn}
+                            >
+                              <Text style={styles.payNowBtnText}>
+                                Trả ngay qua VietQR / Tiền mặt ›
+                              </Text>
+                            </ScalePressable>
+                          ) : canRemind ? (
+                            <ScalePressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                navigation.navigate('FriendlyReminder', {
+                                  groupId: group.id,
+                                  recipientMemberId: transfer.fromMemberId,
+                                  creditorName: transfer.toName,
+                                  amountVnd: transfer.amountVnd,
+                                })
+                              }
+                              scaleTo={0.96}
+                              style={styles.remindBtn}
+                            >
+                              <Text style={styles.remindBtnText}>
+                                Gửi nhắc nhẹ cho {transfer.fromName} ›
+                              </Text>
+                            </ScalePressable>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  </FadeSlideIn>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
+        <Text style={styles.eyebrow}>SỐ DƯ TỪNG THÀNH VIÊN</Text>
+        <View style={styles.membersCard}>
+          {(memberBalances
+            ? memberBalances.map((m) => ({
+                id: m.memberId,
+                displayName: m.displayName,
+                isMe: m.isMe,
+                netBalanceVnd: m.netBalanceVnd,
+              }))
+            : group.members.map((m) => ({
+                id: m.id,
+                displayName: m.displayName,
+                isMe: m.isMe,
+                netBalanceVnd: m.netBalanceVnd,
+              }))
+          ).map((member, index) => {
+            const balColor =
+              member.netBalanceVnd < 0
+                ? colors.coral
+                : member.netBalanceVnd > 0
+                  ? colors.forest
+                  : colors.muted;
+            return (
+              <React.Fragment key={member.id}>
+                {index > 0 ? <View style={styles.divider} /> : null}
+                <ScalePressable
+                  onPress={() =>
+                    navigation.navigate('MemberDetails', {
+                      groupId: group.id,
+                      memberId: member.id,
+                    })
+                  }
+                  scaleTo={0.99}
+                  style={styles.balanceRow}
+                >
+                  <View style={styles.memberAvatarName}>
+                    <AvatarBadge
+                      name={member.displayName}
+                      size={32}
+                      highlight={member.isMe}
+                    />
+                    <Text style={styles.memberName}>
+                      {member.displayName}
+                      {member.isMe ? ' (bạn)' : ''}
+                    </Text>
+                  </View>
+                  <Text style={[styles.balanceValue, tabularNums, { color: balColor }]}>
+                    {formatVnd(member.netBalanceVnd, { showSign: true })}
+                  </Text>
+                </ScalePressable>
+              </React.Fragment>
+            );
+          })}
         </View>
-        {!group.isArchived ? (
+
+        <View style={styles.balanceFooterLinks}>
           <Pressable
             accessibilityRole="button"
-            onPress={handleOpenPotContribute}
-            style={({ pressed }) => [styles.potAddBtn, pressed && styles.pressed]}
+            hitSlop={8}
+            onPress={() => navigation.navigate('PaymentHistory', { groupId: group.id })}
           >
-            <Text style={styles.potAddBtnText}>+ Góp quỹ</Text>
+            <Text style={styles.secondaryLink}>Lịch sử thanh toán</Text>
           </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => navigation.navigate('GroupBalances', { groupId: group.id })}
+          >
+            <Text style={styles.secondaryLink}>Xem toàn màn công nợ ›</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  };
+
+  const renderMembersTab = () => {
+    if (!group) return null;
+    return (
+      <View style={styles.tabBody}>
+        <View style={styles.membersCard}>
+          {group.members.map((member, index) => (
+            <React.Fragment key={member.id}>
+              {index > 0 ? <View style={styles.divider} /> : null}
+              <ScalePressable
+                onPress={() =>
+                  navigation.navigate('MemberDetails', {
+                    groupId: group.id,
+                    memberId: member.id,
+                  })
+                }
+                scaleTo={0.99}
+                style={styles.balanceRow}
+              >
+                <View style={styles.memberAvatarName}>
+                  <AvatarBadge
+                    name={member.displayName}
+                    size={36}
+                    highlight={member.isMe}
+                  />
+                  <View style={styles.memberInfoCol}>
+                    <Text style={styles.memberName}>
+                      {member.displayName}
+                      {member.isMe ? ' (bạn)' : ''}
+                    </Text>
+                    <Text style={styles.memberRole}>
+                      {member.role === 'ADMIN'
+                        ? 'Trưởng nhóm'
+                        : member.role === 'GUEST'
+                          ? 'Khách'
+                          : 'Thành viên'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.memberRightCol}>
+                  <Text
+                    style={[
+                      styles.balanceValue,
+                      tabularNums,
+                      {
+                        color:
+                          member.netBalanceVnd < 0
+                            ? colors.coral
+                            : member.netBalanceVnd > 0
+                              ? colors.forest
+                              : colors.muted,
+                      },
+                    ]}
+                  >
+                    {formatVnd(member.netBalanceVnd, { showSign: true })}
+                  </Text>
+                  <IconChevron width={16} height={16} />
+                </View>
+              </ScalePressable>
+            </React.Fragment>
+          ))}
+        </View>
+
+        {!group.isArchived && group.myRole !== 'GUEST' ? (
+          <View style={styles.memberActionsStack}>
+            <ChiaNeButton
+              label="Mời bạn bè qua liên kết"
+              variant="secondary"
+              onPress={() =>
+                navigation.navigate('InviteFriends', { groupId: group.id })
+              }
+            />
+            {group.myRole === 'ADMIN' ? (
+              <ScalePressable
+                onPress={() => {
+                  setAddMemberError(null);
+                  setAddMemberOpen(true);
+                }}
+                scaleTo={0.98}
+                style={styles.quickAddMemberBtn}
+              >
+                <IconUserPlus width={18} height={18} color={colors.forest} />
+                <Text style={styles.quickAddMemberText}>
+                  Thêm thành viên thủ công
+                </Text>
+              </ScalePressable>
+            ) : null}
+          </View>
         ) : null}
       </View>
-    )
-  ) : null;
+    );
+  };
 
   return (
     <ScreenContainer
@@ -513,40 +888,26 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
           title={group?.name ?? 'Chi tiết nhóm'}
           onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
           rightSlot={
-            group ? (
-              <View style={styles.headerActions}>
-                {group.myRole !== 'GUEST' ? (
-                  <Pressable
-                    accessibilityLabel="Cài đặt nhóm"
-                    hitSlop={8}
-                    onPress={() =>
-                      navigation.navigate('GroupSettings', { groupId: group.id })
-                    }
-                    style={styles.iconActionBtn}
-                  >
-                    <IconGear width={22} height={22} />
-                  </Pressable>
-                ) : null}
-                {!group.isArchived ? (
-                  <Pressable
-                    accessibilityLabel="Thêm khoản chi"
-                    hitSlop={8}
-                    onPress={() =>
-                      navigation.navigate('AddExpense', { groupId: group.id })
-                    }
-                    style={styles.iconActionBtn}
-                  >
-                    <IconPlus width={23} height={23} />
-                  </Pressable>
-                ) : null}
-              </View>
+            group && group.myRole !== 'GUEST' ? (
+              <Pressable
+                accessibilityLabel="Cài đặt nhóm"
+                hitSlop={8}
+                onPress={() =>
+                  navigation.navigate('GroupSettings', { groupId: group.id })
+                }
+                style={styles.iconActionBtn}
+              >
+                <IconGear width={22} height={22} />
+              </Pressable>
             ) : undefined
           }
         />
       }
     >
       {loading && !group ? (
-        <StateView kind="loading" title="Đang tải thông tin nhóm..." />
+        <View style={styles.loadingWrap}>
+          <CardListSkeleton count={3} cardHeight={104} />
+        </View>
       ) : errorText && !group ? (
         <StateView
           kind="error"
@@ -563,6 +924,42 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                 Nhóm này đang ở chế độ lưu trữ (chỉ xem).
               </Text>
             </View>
+          ) : null}
+
+          {justCreated && !inviteBannerDismissed && group.myRole !== 'GUEST' ? (
+            <FadeSlideIn index={0}>
+              <View style={styles.justCreatedBanner}>
+                <View style={styles.justCreatedTop}>
+                  <Text style={styles.justCreatedTitle}>
+                    🎉 Nhóm sẵn sàng! Mời bạn bè vào cùng chia nhé
+                  </Text>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => setInviteBannerDismissed(true)}
+                  >
+                    <Text style={styles.justCreatedDismiss}>✕</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.justCreatedActions}>
+                  <ScalePressable
+                    onPress={() => void handleCopyInvite()}
+                    scaleTo={0.96}
+                    style={styles.justCreatedCopyBtn}
+                  >
+                    <Text style={styles.justCreatedCopyText}>📋 Sao chép link</Text>
+                  </ScalePressable>
+                  <ScalePressable
+                    onPress={() =>
+                      navigation.navigate('InviteFriends', { groupId: group.id })
+                    }
+                    scaleTo={0.96}
+                    style={styles.justCreatedShareBtn}
+                  >
+                    <Text style={styles.justCreatedShareText}>Mời qua Zalo ›</Text>
+                  </ScalePressable>
+                </View>
+              </View>
+            </FadeSlideIn>
           ) : null}
 
           {group.myRole === 'GUEST' ? (
@@ -594,126 +991,143 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
             </View>
           ) : null}
 
-          {group.expenses.length === 0 && activeTab === 'EXPENSES' ? (
-            <View style={styles.emptyWrap}>
-              <View style={styles.emptyHeroCard}>
-                <View style={styles.emptyIconBox}>
-                  <CategoryIcon width={48} height={48} />
-                </View>
-                <Text style={styles.emptyHeading}>
-                  {`${group.name},\nchi tiêu cũng chung.`}
-                </Text>
-                <Text style={styles.emptySub}>
-                  {
-                    'Chưa có khoản chi nào.\nGhi khoản chi đầu tiên để cả hội cùng theo dõi rõ ràng nhé.'
-                  }
-                </Text>
-              </View>
-
-              <View style={styles.emptyTabsRow}>
-                <ChiaNeChip
-                  label="Khoản chi"
-                  active
-                  onPress={() => setActiveTab('EXPENSES')}
-                />
-                <ChiaNeChip
-                  label="Số dư"
-                  active={false}
-                  onPress={() => setActiveTab('BALANCES')}
-                />
-                <ChiaNeChip
-                  label={`Thành viên (${group.memberCount})`}
-                  active={false}
-                  onPress={() => setActiveTab('MEMBERS')}
-                />
-              </View>
-
-              {socialFunRow}
-              {potSummaryCard}
-
-              {!group.isArchived ? (
-                <View style={styles.emptyActions}>
-                  <ChiaNeButton
-                    label="+  Thêm khoản chi đầu tiên"
-                    variant="primary"
-                    onPress={() =>
-                      navigation.navigate('AddExpense', { groupId: group.id })
-                    }
-                  />
-                  {group.myRole !== 'GUEST' ? (
-                    <ChiaNeButton
-                      label="Mời bạn bè vào nhóm"
-                      variant="secondary"
-                      onPress={() =>
-                        navigation.navigate('InviteFriends', { groupId: group.id })
-                      }
-                    />
-                  ) : null}
-                </View>
-              ) : null}
-
-              <Text style={styles.emptyFooter}>
-                {`${group.memberCount} thành viên · Mọi số dư đang cân bằng`}
-              </Text>
-            </View>
-          ) : (
+          {group.expenses.length === 0 ? (
             <>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryMeta}>
-                  {`${group.memberCount} thành viên · ${group.expenseCount} khoản chi`}
-                </Text>
-                <View style={styles.summaryBottomRow}>
-                  <View style={styles.summaryAmountCol}>
-                    <Text style={styles.summaryLabel}>Cả nhóm đã chi</Text>
-                    <Text style={styles.summaryAmount}>
-                      {formatVnd(group.totalSpentVnd)}
+              <AnimatedSegmentedControl<DetailTab>
+                options={[
+                  { key: 'EXPENSES', label: 'Khoản chi' },
+                  {
+                    key: 'BALANCES',
+                    label: 'Số dư',
+                    badgeCount: balances?.pendingSettlements.length ?? 0,
+                  },
+                  { key: 'MEMBERS', label: `Thành viên (${group.memberCount})` },
+                ]}
+                value={activeTab}
+                onChange={setActiveTab}
+              />
+
+              {activeTab === 'EXPENSES' ? (
+                <View style={styles.emptyWrap}>
+                  <View style={styles.emptyHeroCard}>
+                    <View style={styles.emptyIconBox}>
+                      <CategoryIcon width={46} height={46} />
+                    </View>
+                    <Text style={styles.emptyHeading}>
+                      {`${group.name},\nchi tiêu cũng chung.`}
+                    </Text>
+                    <Text style={styles.emptySub}>
+                      Chưa có khoản chi nào. Ghi khoản chi đầu tiên để cả hội cùng theo dõi rõ ràng nhé.
                     </Text>
                   </View>
-                  {!group.isArchived ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Thêm khoản chi nhanh"
-                      onPress={() =>
-                        navigation.navigate('AddExpense', { groupId: group.id })
-                      }
-                      style={({ pressed }) => [
-                        styles.addFab,
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <IconPlusLight width={24} height={24} />
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
 
-              {socialFunRow}
+                  {utilityBar}
+                  {potSummaryCard}
+
+                  {!group.isArchived ? (
+                    <View style={styles.emptyActions}>
+                      <ChiaNeButton
+                        label="+  Thêm khoản chi đầu tiên"
+                        variant="primary"
+                        onPress={() =>
+                          navigation.navigate('AddExpense', { groupId: group.id })
+                        }
+                      />
+                      {group.myRole !== 'GUEST' ? (
+                        <ChiaNeButton
+                          label="Mời bạn bè vào nhóm"
+                          variant="secondary"
+                          onPress={() =>
+                            navigation.navigate('InviteFriends', { groupId: group.id })
+                          }
+                        />
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  <Text style={styles.emptyFooter}>
+                    {`${group.memberCount} thành viên · Mọi số dư đang cân bằng`}
+                  </Text>
+                </View>
+              ) : activeTab === 'BALANCES' ? (
+                renderBalancesTab()
+              ) : (
+                renderMembersTab()
+              )}
+            </>
+          ) : (
+            <>
+              <FadeSlideIn index={0}>
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryTopRow}>
+                    <Text style={styles.summaryMeta}>
+                      {`${group.memberCount} thành viên · ${group.expenseCount} khoản chi`}
+                    </Text>
+                    {myBalancePill ? (
+                      <View
+                        style={[
+                          styles.myBalPill,
+                          { backgroundColor: myBalancePill.bg },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.myBalPillText,
+                            tabularNums,
+                            { color: myBalancePill.fg },
+                          ]}
+                        >
+                          {myBalancePill.text}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.summaryBottomRow}>
+                    <View style={styles.summaryAmountCol}>
+                      <Text style={styles.summaryLabel}>Cả nhóm đã chi</Text>
+                      <AnimatedNumber
+                        value={group.totalSpentVnd}
+                        style={styles.summaryAmount}
+                      />
+                    </View>
+                    {!group.isArchived ? (
+                      <ScalePressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Thêm khoản chi nhanh"
+                        onPress={() =>
+                          navigation.navigate('AddExpense', { groupId: group.id })
+                        }
+                        scaleTo={0.92}
+                        style={styles.addFab}
+                      >
+                        <IconPlusLight width={24} height={24} />
+                      </ScalePressable>
+                    ) : null}
+                  </View>
+                </View>
+              </FadeSlideIn>
+
+              {utilityBar}
               {potSummaryCard}
 
-              <View style={styles.tabsRow}>
-                <ChiaNeChip
-                  label="Khoản chi"
-                  active={activeTab === 'EXPENSES'}
-                  onPress={() => setActiveTab('EXPENSES')}
-                  style={styles.tabChip}
-                />
-                <ChiaNeChip
-                  label="Số dư"
-                  active={activeTab === 'BALANCES'}
-                  onPress={() => setActiveTab('BALANCES')}
-                  style={styles.tabChip}
-                />
-                <ChiaNeChip
-                  label="Thành viên"
-                  active={activeTab === 'MEMBERS'}
-                  onPress={() => setActiveTab('MEMBERS')}
-                  style={styles.tabChip}
-                />
-              </View>
+              <AnimatedSegmentedControl<DetailTab>
+                options={[
+                  { key: 'EXPENSES', label: 'Khoản chi' },
+                  {
+                    key: 'BALANCES',
+                    label: 'Số dư',
+                    badgeCount: balances?.pendingSettlements.length ?? 0,
+                  },
+                  { key: 'MEMBERS', label: `Thành viên (${group.memberCount})` },
+                ]}
+                value={activeTab}
+                onChange={setActiveTab}
+              />
 
               {activeTab === 'EXPENSES' ? (
                 <View style={styles.tabBody}>
-                  {groupedExpenses.map((bucket) => (
+                  {groupedExpenses.map((bucket, bucketIdx) => (
                     <View key={bucket.label} style={styles.bucketWrap}>
                       <View style={styles.bucketHeader}>
                         <Text style={styles.bucketTitle}>{bucket.label}</Text>
@@ -722,23 +1136,27 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                         </Text>
                       </View>
                       <View style={styles.expenseList}>
-                        {bucket.items.map((exp) => (
-                          <ExpenseRow
+                        {bucket.items.map((exp, idx) => (
+                          <FadeSlideIn
                             key={exp.id}
-                            title={exp.title}
-                            subtitle={`${
-                              exp.isPaidFromPot
-                                ? '🐷 Quỹ chung đã chi'
-                                : `${exp.paidByName} đã trả`
-                            } · ${exp.splitCount} người`}
-                            amountText={formatVnd(exp.amountVnd)}
-                            category={exp.category}
-                            onPress={() =>
-                              navigation.navigate('ExpenseDetails', {
-                                expenseId: exp.id,
-                              })
-                            }
-                          />
+                            index={bucketIdx * 2 + idx}
+                          >
+                            <ExpenseRow
+                              title={exp.title}
+                              subtitle={`${
+                                exp.isPaidFromPot
+                                  ? '🐷 Quỹ chung đã chi'
+                                  : `${exp.paidByName} đã trả`
+                              } · ${exp.splitCount} người`}
+                              amountText={formatVnd(exp.amountVnd)}
+                              category={exp.category}
+                              onPress={() =>
+                                navigation.navigate('ExpenseDetails', {
+                                  expenseId: exp.id,
+                                })
+                              }
+                            />
+                          </FadeSlideIn>
                         ))}
                       </View>
                     </View>
@@ -749,730 +1167,556 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                 </View>
               ) : null}
 
-              {activeTab === 'BALANCES' ? (
-                <View style={styles.tabBody}>
-                  <View style={styles.membersCard}>
-                    {group.members.map((member, index) => {
-                      const balColor =
-                        member.netBalanceVnd < 0
-                          ? colors.coral
-                          : member.netBalanceVnd > 0
-                            ? colors.forest
-                            : colors.muted;
-                      return (
-                        <React.Fragment key={member.id}>
-                          {index > 0 ? <View style={styles.divider} /> : null}
-                          <Pressable
-                            onPress={() =>
-                              navigation.navigate('MemberDetails', {
-                                groupId: group.id,
-                                memberId: member.id,
-                              })
-                            }
-                            style={styles.balanceRow}
-                          >
-                            <Text style={styles.memberName}>
-                              {member.displayName}
-                              {member.isMe ? ' (bạn)' : ''}
-                            </Text>
-                            <Text style={[styles.balanceValue, { color: balColor }]}>
-                              {formatVnd(member.netBalanceVnd, { showSign: true })}
-                            </Text>
-                          </Pressable>
-                        </React.Fragment>
-                      );
-                    })}
-                  </View>
-
-                  <ChiaNeButton
-                    label="Xem gợi ý chuyển khoản & thanh toán"
-                    variant="primary"
-                    onPress={() =>
-                      navigation.navigate('GroupBalances', { groupId: group.id })
-                    }
-                  />
-                </View>
-              ) : null}
-
-              {activeTab === 'MEMBERS' ? (
-                <View style={styles.tabBody}>
-                  <View style={styles.membersCard}>
-                    {group.members.map((member, index) => (
-                      <React.Fragment key={member.id}>
-                        {index > 0 ? <View style={styles.divider} /> : null}
-                        <Pressable
-                          onPress={() =>
-                            navigation.navigate('MemberDetails', {
-                              groupId: group.id,
-                              memberId: member.id,
-                            })
-                          }
-                          style={({ pressed }) => [
-                            styles.balanceRow,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <View style={styles.memberInfoCol}>
-                            <Text style={styles.memberName}>
-                              {member.displayName}
-                              {member.isMe ? ' (bạn)' : ''}
-                            </Text>
-                            <Text style={styles.memberRole}>
-                              {member.role === 'ADMIN'
-                                ? 'Trưởng nhóm'
-                                : member.role === 'GUEST'
-                                  ? 'Khách'
-                                  : 'Thành viên'}
-                            </Text>
-                          </View>
-                          <View style={styles.memberRightCol}>
-                            <Text
-                              style={[
-                                styles.balanceValue,
-                                {
-                                  color:
-                                    member.netBalanceVnd < 0
-                                      ? colors.coral
-                                      : member.netBalanceVnd > 0
-                                        ? colors.forest
-                                        : colors.muted,
-                                },
-                              ]}
-                            >
-                              {formatVnd(member.netBalanceVnd, { showSign: true })}
-                            </Text>
-                            <IconChevron width={16} height={16} />
-                          </View>
-                        </Pressable>
-                      </React.Fragment>
-                    ))}
-                  </View>
-
-                  {!group.isArchived && group.myRole !== 'GUEST' ? (
-                    <View style={styles.memberActionsStack}>
-                      <ChiaNeButton
-                        label="Mời bạn bè qua liên kết"
-                        variant="secondary"
-                        onPress={() =>
-                          navigation.navigate('InviteFriends', { groupId: group.id })
-                        }
-                      />
-                      {group.myRole === 'ADMIN' ? (
-                        <Pressable
-                          onPress={() => {
-                            setAddMemberError(null);
-                            setAddMemberOpen(true);
-                          }}
-                          style={styles.quickAddMemberBtn}
-                        >
-                          <IconUserPlus width={18} height={18} color={colors.forest} />
-                          <Text style={styles.quickAddMemberText}>
-                            Thêm thành viên thủ công
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
+              {activeTab === 'BALANCES' ? renderBalancesTab() : null}
+              {activeTab === 'MEMBERS' ? renderMembersTab() : null}
             </>
           )}
         </View>
       ) : null}
 
-      <Modal
+      {/* Add Member BottomSheet */}
+      <BottomSheetModal
         visible={addMemberOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setAddMemberOpen(false)}
+        onClose={() => setAddMemberOpen(false)}
+        dismissable={!addingMember}
+        title="Thêm thành viên"
+        subtitle="Nhập tên thành viên (và SĐT nếu muốn liên kết tài khoản ChiaNè của bạn đó)."
+        footer={
+          <View style={styles.modalActions}>
+            <ChiaNeButton
+              label="Thêm vào nhóm"
+              variant="primary"
+              loading={addingMember}
+              onPress={() => void handleAddMemberSubmit()}
+            />
+            <ChiaNeButton
+              label="Đóng"
+              variant="quiet"
+              disabled={addingMember}
+              onPress={() => setAddMemberOpen(false)}
+            />
+          </View>
+        }
       >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={addingMember ? undefined : () => setAddMemberOpen(false)}
-        >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Thêm thành viên</Text>
-            <Text style={styles.modalDesc}>
-              Nhập tên thành viên (và SĐT nếu muốn liên kết tài khoản ChiaNè của bạn đó).
-            </Text>
-            <ChiaNeInput
-              label="Tên hiển thị"
-              value={newMemberName}
-              onChangeText={(t) => {
-                setNewMemberName(t);
-                if (addMemberError) setAddMemberError(null);
-              }}
-              placeholder="Ví dụ: Huy"
-              errorText={addMemberError}
-            />
-            <ChiaNeInput
-              label="Số điện thoại (không bắt buộc)"
-              value={newMemberPhone}
-              onChangeText={setNewMemberPhone}
-              placeholder="0912 345 678"
-              keyboardType="phone-pad"
-            />
-            <View style={styles.modalActions}>
-              <ChiaNeButton
-                label="Thêm vào nhóm"
-                variant="primary"
-                loading={addingMember}
-                onPress={() => void handleAddMemberSubmit()}
-              />
-              <ChiaNeButton
-                label="Đóng"
-                variant="quiet"
-                disabled={addingMember}
-                onPress={() => setAddMemberOpen(false)}
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        <ChiaNeInput
+          label="Tên hiển thị"
+          value={newMemberName}
+          onChangeText={(t) => {
+            setNewMemberName(t);
+            if (addMemberError) setAddMemberError(null);
+          }}
+          placeholder="Ví dụ: Huy"
+          errorText={addMemberError}
+        />
+        <ChiaNeInput
+          label="Số điện thoại (không bắt buộc)"
+          value={newMemberPhone}
+          onChangeText={setNewMemberPhone}
+          placeholder="0912 345 678"
+          keyboardType="phone-pad"
+        />
+      </BottomSheetModal>
 
-      {/* Contribute Pot Modal */}
-      <Modal
+      {/* Contribute Pot BottomSheet */}
+      <BottomSheetModal
         visible={potContributeOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={potSubmitting ? undefined : () => setPotContributeOpen(false)}
+        onClose={() => setPotContributeOpen(false)}
+        dismissable={!potSubmitting}
+        title="🐷 Góp quỹ chung nhóm"
+        scrollable
+        footer={
+          <View style={styles.modalActions}>
+            <ChiaNeButton
+              label={
+                potPayMethod === 'BANK_TRANSFER'
+                  ? '✅ Đã chuyển & Ghi nhận góp quỹ'
+                  : '💵 Ghi nhận góp tiền mặt'
+              }
+              variant="primary"
+              loading={potSubmitting}
+              onPress={() => void handleContributePotSubmit()}
+            />
+            <ChiaNeButton
+              label="Đóng"
+              variant="quiet"
+              disabled={potSubmitting}
+              onPress={() => setPotContributeOpen(false)}
+            />
+          </View>
+        }
       >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={potSubmitting ? undefined : () => setPotContributeOpen(false)}
-        >
-          <Pressable
-            style={[styles.modalCard, styles.potContributeModalCard]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text style={styles.modalTitle}>🐷 Góp quỹ chung nhóm</Text>
-            <ScrollView
-              style={styles.potContributeScroll}
-              contentContainerStyle={styles.potContributeScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Custodian Banner & Switcher */}
-              <View style={styles.custodianBox}>
-                <View style={styles.custodianHeaderRow}>
-                  <View style={styles.custodianTextCol}>
-                    <Text style={styles.custodianEyebrow}>🏦 THỦ QUỸ GIỮ TIỀN</Text>
-                    <Text style={styles.custodianName}>
-                      {custodian
-                        ? `${custodian.displayName}${custodian.isMe ? ' (bạn)' : ''}`
-                        : 'Trưởng nhóm'}
-                    </Text>
-                    {custodian?.bankPreview.hasRealBank ? (
-                      <Text style={styles.custodianBankSub}>
-                        {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.maskedAccountNumber ?? custodian.bankPreview.bankAccountNumber}`}
-                      </Text>
-                    ) : (
-                      <Text style={styles.custodianNoBankSub}>
-                        Chưa liên kết tài khoản ngân hàng
-                      </Text>
-                    )}
-                  </View>
-                  {group && group.myRole !== 'GUEST' && !group.isArchived ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => setCustodianPickerOpen((prev) => !prev)}
-                      style={({ pressed }) => [styles.changeCustodianBtn, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.changeCustodianBtnText}>
-                        {custodianPickerOpen ? 'Đóng' : 'Đổi Thủ quỹ'}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+        <View style={styles.custodianBox}>
+          <View style={styles.custodianHeaderRow}>
+            <View style={styles.custodianTextCol}>
+              <Text style={styles.custodianEyebrow}>🏦 THỦ QUỸ GIỮ TIỀN</Text>
+              <Text style={styles.custodianName}>
+                {custodian
+                  ? `${custodian.displayName}${custodian.isMe ? ' (bạn)' : ''}`
+                  : 'Trưởng nhóm'}
+              </Text>
+              {custodian?.bankPreview.hasRealBank ? (
+                <Text style={styles.custodianBankSub}>
+                  {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.maskedAccountNumber ?? custodian.bankPreview.bankAccountNumber}`}
+                </Text>
+              ) : (
+                <Text style={styles.custodianNoBankSub}>
+                  Chưa liên kết tài khoản ngân hàng
+                </Text>
+              )}
+            </View>
+            {group && group.myRole !== 'GUEST' && !group.isArchived ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setCustodianPickerOpen((prev) => !prev)}
+                style={({ pressed }) => [styles.changeCustodianBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.changeCustodianBtnText}>
+                  {custodianPickerOpen ? 'Đóng' : 'Đổi Thủ quỹ'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
 
-                {custodianPickerOpen && group ? (
-                  <View style={styles.custodianPickerWrap}>
-                    <Text style={styles.potFieldLabel}>
-                      {updatingCustodian ? 'Đang cập nhật Thủ quỹ...' : 'Chọn thành viên giữ quỹ:'}
-                    </Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.potChipRow}
-                    >
-                      {group.members.map((m) => (
-                        <ChiaNeChip
-                          key={m.id}
-                          label={`${m.displayName}${m.bankPreview?.hasRealBank ? ' 🏦' : ''}`}
-                          active={custodian?.memberId === m.id}
-                          onPress={() => void handleChangeCustodian(m.id)}
-                        />
-                      ))}
-                    </ScrollView>
-                  </View>
-                ) : null}
-              </View>
-
-              {/* Contributor Picker */}
-              {group ? (
-                group.myRole === 'GUEST' ? (
-                  <View style={styles.potGuestBox}>
-                    <Text style={styles.potGuestText}>
-                      Người góp quỹ: {group.members.find((m) => m.id === group.myMemberId)?.displayName ?? 'Bạn'}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.potMemberPicker}>
-                    <Text style={styles.potFieldLabel}>Người góp quỹ</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.potChipRow}
-                    >
-                      {group.members.map((m) => (
-                        <ChiaNeChip
-                          key={m.id}
-                          label={`${m.displayName}${m.isMe ? ' (bạn)' : ''}`}
-                          active={(potMemberId || group.myMemberId) === m.id}
-                          onPress={() => setPotMemberId(m.id)}
-                        />
-                      ))}
-                    </ScrollView>
-                  </View>
-                )
-              ) : null}
-
-              <ChiaNeInput
-                label="Số tiền góp (₫)"
-                value={
-                  potAmountVnd > 0
-                    ? formatVnd(potAmountVnd, { includeSymbol: false })
-                    : ''
-                }
-                onChangeText={(raw) => {
-                  setPotAmountVnd(parseVndInput(raw));
-                  if (potError) setPotError(null);
-                }}
-                keyboardType="number-pad"
-                placeholder="500.000"
-                errorText={potError}
-              />
-
-              <View style={styles.potPresetRow}>
-                {[
-                  { label: '200k', value: 200_000 },
-                  { label: '500k', value: 500_000 },
-                  { label: '1 triệu', value: 1_000_000 },
-                ].map((preset) => (
+          {custodianPickerOpen && group ? (
+            <View style={styles.custodianPickerWrap}>
+              <Text style={styles.potFieldLabel}>
+                {updatingCustodian ? 'Đang cập nhật Thủ quỹ...' : 'Chọn thành viên giữ quỹ:'}
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.potChipRow}
+              >
+                {group.members.map((m) => (
                   <ChiaNeChip
-                    key={preset.value}
-                    label={preset.label}
-                    active={potAmountVnd === preset.value}
-                    onPress={() => {
-                      setPotAmountVnd(preset.value);
-                      if (potError) setPotError(null);
-                    }}
+                    key={m.id}
+                    label={`${m.displayName}${m.bankPreview?.hasRealBank ? ' 🏦' : ''}`}
+                    active={custodian?.memberId === m.id}
+                    onPress={() => void handleChangeCustodian(m.id)}
                   />
                 ))}
-              </View>
-
-              {/* Payment method tabs */}
-              <View style={styles.potMemberPicker}>
-                <Text style={styles.potFieldLabel}>Hình thức góp tiền</Text>
-                <View style={styles.potPresetRow}>
-                  <ChiaNeChip
-                    label="🏦 Chuyển khoản VietQR"
-                    active={potPayMethod === 'BANK_TRANSFER'}
-                    onPress={() => setPotPayMethod('BANK_TRANSFER')}
-                  />
-                  <ChiaNeChip
-                    label="💵 Tiền mặt"
-                    active={potPayMethod === 'CASH'}
-                    onPress={() => setPotPayMethod('CASH')}
-                  />
-                </View>
-              </View>
-
-              {potPayMethod === 'BANK_TRANSFER' ? (
-                custodian?.bankPreview.hasRealBank && potVietQrPayload ? (
-                  <View style={styles.qrTransferCard}>
-                    <VietQrMatrix payload={potVietQrPayload} size={172} />
-                    <View style={styles.qrBankInfoBox}>
-                      <Text style={styles.qrBankName}>
-                        {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.bankAccountNumber}`}
-                      </Text>
-                      {custodian.bankPreview.bankAccountHolder ? (
-                        <Text style={styles.qrHolderName}>
-                          {custodian.bankPreview.bankAccountHolder}
-                        </Text>
-                      ) : null}
-                      <Text style={styles.qrMemoText} numberOfLines={1}>
-                        {`Nội dung: ${potContributeMemo}`}
-                      </Text>
-                    </View>
-                    <View style={styles.qrCopyRow}>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() =>
-                          void copyQrValue(
-                            'STK',
-                            custodian.bankPreview.bankAccountNumber ?? ''
-                          )
-                        }
-                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.qrCopyBtnText}>📋 Chép STK</Text>
-                      </Pressable>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => void copyQrValue('nội dung CK', potContributeMemo)}
-                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.qrCopyBtnText}>📋 Chép nội dung</Text>
-                      </Pressable>
-                    </View>
-                    {copiedQrNotice ? (
-                      <Text style={styles.copiedQrToast}>{copiedQrNotice}</Text>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View style={styles.noBankCallout}>
-                    <Text style={styles.noBankCalloutText}>
-                      {`Thủ quỹ (${custodian?.displayName ?? 'Trưởng nhóm'}) chưa cài tài khoản ngân hàng — bạn có thể chuyển sang Tiền mặt hoặc nhắc Thủ quỹ cập nhật STK.`}
-                    </Text>
-                    {custodian?.isMe && group?.myRole !== 'GUEST' ? (
-                      <ChiaNeButton
-                        label="🏦 Cài tài khoản ngân hàng ngay"
-                        variant="secondary"
-                        onPress={() => {
-                          setPotContributeOpen(false);
-                          navigation.navigate('BankAccount');
-                        }}
-                      />
-                    ) : null}
-                  </View>
-                )
-              ) : null}
-
-              <ChiaNeInput
-                label="Ghi chú (không bắt buộc)"
-                value={potNote}
-                onChangeText={setPotNote}
-                placeholder="Ví dụ: Góp quỹ đợt 1 đi Đà Lạt"
-                maxLength={200}
-              />
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <ChiaNeButton
-                label={
-                  potPayMethod === 'BANK_TRANSFER'
-                    ? '✅ Đã chuyển & Ghi nhận góp quỹ'
-                    : '💵 Ghi nhận góp tiền mặt'
-                }
-                variant="primary"
-                loading={potSubmitting}
-                onPress={() => void handleContributePotSubmit()}
-              />
-              <ChiaNeButton
-                label="Đóng"
-                variant="quiet"
-                disabled={potSubmitting}
-                onPress={() => setPotContributeOpen(false)}
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Pot Detail & Refund Modal */}
-      <Modal
-        visible={potDetailOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPotDetailOpen(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setPotDetailOpen(false)}
-        >
-          <Pressable
-            style={[styles.modalCard, styles.potDetailModalCard]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text style={styles.modalTitle}>🐷 Chi tiết & Hoàn quỹ</Text>
-            {pot ? (
-              <ScrollView
-                style={styles.potDetailScroll}
-                contentContainerStyle={styles.potDetailScrollContent}
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={styles.custodianBox}>
-                  <View style={styles.custodianHeaderRow}>
-                    <View style={styles.custodianTextCol}>
-                      <Text style={styles.custodianEyebrow}>🏦 THỦ QUỸ GIỮ TIỀN</Text>
-                      <Text style={styles.custodianName}>
-                        {custodian
-                          ? `${custodian.displayName}${custodian.isMe ? ' (bạn)' : ''}`
-                          : 'Trưởng nhóm'}
-                      </Text>
-                      {custodian?.bankPreview.hasRealBank ? (
-                        <Text style={styles.custodianBankSub}>
-                          {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.bankAccountNumber}`}
-                        </Text>
-                      ) : (
-                        <Text style={styles.custodianNoBankSub}>
-                          Chưa liên kết tài khoản ngân hàng
-                        </Text>
-                      )}
-                    </View>
-                    {group && group.myRole !== 'GUEST' && !group.isArchived ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => setCustodianPickerOpen((prev) => !prev)}
-                        style={({ pressed }) => [styles.changeCustodianBtn, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.changeCustodianBtnText}>
-                          {custodianPickerOpen ? 'Đóng' : 'Đổi Thủ quỹ'}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-
-                  {custodianPickerOpen && group ? (
-                    <View style={styles.custodianPickerWrap}>
-                      <Text style={styles.potFieldLabel}>
-                        {updatingCustodian ? 'Đang cập nhật...' : 'Chọn thành viên giữ quỹ:'}
-                      </Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.potChipRow}
-                      >
-                        {group.members.map((m) => (
-                          <ChiaNeChip
-                            key={m.id}
-                            label={`${m.displayName}${m.bankPreview?.hasRealBank ? ' 🏦' : ''}`}
-                            active={custodian?.memberId === m.id}
-                            onPress={() => void handleChangeCustodian(m.id)}
-                          />
-                        ))}
-                      </ScrollView>
-                    </View>
-                  ) : null}
-                </View>
-
-                <View style={styles.potStatsBar}>
-                  <View style={styles.potStatItem}>
-                    <Text style={styles.potStatLabel}>Đã góp</Text>
-                    <Text style={styles.potStatVal}>
-                      {formatVnd(pot.totalContributedVnd)}
-                    </Text>
-                  </View>
-                  <View style={styles.potStatItem}>
-                    <Text style={styles.potStatLabel}>Đã chi</Text>
-                    <Text style={styles.potStatVal}>
-                      {formatVnd(pot.totalSpentFromPotVnd)}
-                    </Text>
-                  </View>
-                  <View style={styles.potStatItem}>
-                    <Text style={styles.potStatLabel}>Còn lại</Text>
-                    <Text
-                      style={[
-                        styles.potStatVal,
-                        pot.remainingPotVnd < 0 && styles.potNegativeText,
-                      ]}
-                    >
-                      {formatVnd(pot.remainingPotVnd)}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.potSectionHeading}>
-                  Bảng tính hoàn quỹ thừa từng người
-                </Text>
-                <View style={styles.potSectionList}>
-                  {pot.memberSummaries.map((s) => {
-                    const refundColor =
-                      s.netRefundVnd > 0
-                        ? colors.forest
-                        : s.netRefundVnd < 0
-                          ? colors.coral
-                          : colors.muted;
-                    return (
-                      <View key={s.memberId} style={styles.potSummaryRow}>
-                        <View style={styles.potSummaryLeft}>
-                          <Text style={styles.potSummaryName}>
-                            {s.displayName}
-                            {s.isMe ? ' (bạn)' : ''}
-                          </Text>
-                          <Text style={styles.potSummarySub}>
-                            {`Góp ${formatVnd(s.contributedVnd)} · Tiêu ${formatVnd(
-                              s.consumedFromPotVnd
-                            )}`}
-                          </Text>
-                        </View>
-                        <View style={styles.potRefundRightCol}>
-                          <Text style={[styles.potRefundVal, { color: refundColor }]}>
-                            {formatVnd(s.netRefundVnd, { showSign: true })}
-                          </Text>
-                          {s.netRefundVnd > 0 ? (
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={() => {
-                                setCopiedQrNotice(null);
-                                setPotDetailOpen(false);
-                                setRefundQrTarget(s);
-                              }}
-                              style={({ pressed }) => [styles.refundQrPill, pressed && styles.pressed]}
-                            >
-                              <Text style={styles.refundQrPillText}>📲 QR Hoàn tiền</Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-
-                <Text style={styles.potSectionHeading}>
-                  {`Lịch sử góp quỹ (${pot.contributions.length})`}
-                </Text>
-                {pot.contributions.length === 0 ? (
-                  <Text style={styles.potMetaText}>Chưa có lượt góp quỹ nào.</Text>
-                ) : (
-                  <View style={styles.potSectionList}>
-                    {pot.contributions.map((c) => {
-                      const d = new Date(c.createdAt);
-                      const dateLabel = `${d.getDate().toString().padStart(2, '0')}/${(
-                        d.getMonth() + 1
-                      )
-                        .toString()
-                        .padStart(2, '0')}`;
-                      return (
-                        <View key={c.id} style={styles.potHistoryRow}>
-                          <View style={styles.potSummaryLeft}>
-                            <Text style={styles.potSummaryName}>{c.memberName}</Text>
-                            <Text style={styles.potSummarySub}>
-                              {c.note ? `${dateLabel} · ${c.note}` : dateLabel}
-                            </Text>
-                          </View>
-                          <Text style={styles.potContribAmount}>
-                            {`+${formatVnd(c.amountVnd)}`}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
               </ScrollView>
-            ) : null}
+            </View>
+          ) : null}
+        </View>
 
-            <View style={styles.modalActions}>
-              {group && !group.isArchived ? (
+        {group ? (
+          group.myRole === 'GUEST' ? (
+            <View style={styles.potGuestBox}>
+              <Text style={styles.potGuestText}>
+                Người góp quỹ: {group.members.find((m) => m.id === group.myMemberId)?.displayName ?? 'Bạn'}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.potMemberPicker}>
+              <Text style={styles.potFieldLabel}>Người góp quỹ</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.potChipRow}
+              >
+                {group.members.map((m) => (
+                  <ChiaNeChip
+                    key={m.id}
+                    label={`${m.displayName}${m.isMe ? ' (bạn)' : ''}`}
+                    active={(potMemberId || group.myMemberId) === m.id}
+                    onPress={() => setPotMemberId(m.id)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )
+        ) : null}
+
+        <ChiaNeInput
+          label="Số tiền góp (₫)"
+          value={
+            potAmountVnd > 0
+              ? formatVnd(potAmountVnd, { includeSymbol: false })
+              : ''
+          }
+          onChangeText={(raw) => {
+            setPotAmountVnd(parseVndInput(raw));
+            if (potError) setPotError(null);
+          }}
+          keyboardType="number-pad"
+          placeholder="500.000"
+          errorText={potError}
+        />
+
+        <View style={styles.potPresetRow}>
+          {[
+            { label: '200k', value: 200_000 },
+            { label: '500k', value: 500_000 },
+            { label: '1 triệu', value: 1_000_000 },
+          ].map((preset) => (
+            <ChiaNeChip
+              key={preset.value}
+              label={preset.label}
+              active={potAmountVnd === preset.value}
+              onPress={() => {
+                setPotAmountVnd(preset.value);
+                if (potError) setPotError(null);
+              }}
+            />
+          ))}
+        </View>
+
+        <View style={styles.potMemberPicker}>
+          <Text style={styles.potFieldLabel}>Hình thức góp tiền</Text>
+          <AnimatedSegmentedControl<'BANK_TRANSFER' | 'CASH'>
+            options={[
+              { key: 'BANK_TRANSFER', label: 'Chuyển khoản VietQR' },
+              { key: 'CASH', label: 'Tiền mặt' },
+            ]}
+            value={potPayMethod}
+            onChange={setPotPayMethod}
+          />
+        </View>
+
+        {potPayMethod === 'BANK_TRANSFER' ? (
+          custodian?.bankPreview.hasRealBank && potVietQrPayload ? (
+            <View style={styles.qrTransferCard}>
+              <VietQrMatrix payload={potVietQrPayload} size={172} />
+              <View style={styles.qrBankInfoBox}>
+                <Text style={styles.qrBankName}>
+                  {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.bankAccountNumber}`}
+                </Text>
+                {custodian.bankPreview.bankAccountHolder ? (
+                  <Text style={styles.qrHolderName}>
+                    {custodian.bankPreview.bankAccountHolder}
+                  </Text>
+                ) : null}
+                <Text style={styles.qrMemoText} numberOfLines={1}>
+                  {`Nội dung: ${potContributeMemo}`}
+                </Text>
+              </View>
+              <View style={styles.qrCopyRow}>
+                <ScalePressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    void copyQrValue(
+                      'STK',
+                      custodian.bankPreview.bankAccountNumber ?? ''
+                    )
+                  }
+                  scaleTo={0.95}
+                  style={styles.qrCopyBtn}
+                >
+                  <Text style={styles.qrCopyBtnText}>📋 Chép STK</Text>
+                </ScalePressable>
+                <ScalePressable
+                  accessibilityRole="button"
+                  onPress={() => void copyQrValue('nội dung CK', potContributeMemo)}
+                  scaleTo={0.95}
+                  style={styles.qrCopyBtn}
+                >
+                  <Text style={styles.qrCopyBtnText}>📋 Chép nội dung</Text>
+                </ScalePressable>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noBankCallout}>
+              <Text style={styles.noBankCalloutText}>
+                {`Thủ quỹ (${custodian?.displayName ?? 'Trưởng nhóm'}) chưa cài tài khoản ngân hàng — bạn có thể chuyển sang Tiền mặt hoặc nhắc Thủ quỹ cập nhật STK.`}
+              </Text>
+              {custodian?.isMe && group?.myRole !== 'GUEST' ? (
                 <ChiaNeButton
-                  label="+ Góp thêm vào quỹ"
-                  variant="primary"
+                  label="🏦 Cài tài khoản ngân hàng ngay"
+                  variant="secondary"
                   onPress={() => {
-                    setPotDetailOpen(false);
-                    handleOpenPotContribute();
+                    setPotContributeOpen(false);
+                    navigation.navigate('BankAccount');
                   }}
                 />
               ) : null}
-              <ChiaNeButton
-                label="Đóng"
-                variant="quiet"
-                onPress={() => setPotDetailOpen(false)}
-              />
             </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          )
+        ) : null}
 
-      {/* Refund VietQR Modal ("QR Hoàn quỹ thừa") */}
-      <Modal
-        visible={refundQrTarget !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRefundQrTarget(null)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setRefundQrTarget(null)}
-        >
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            {refundQrTarget ? (
-              <>
-                <Text style={styles.modalTitle}>
-                  {`📲 Hoàn quỹ thừa cho ${refundQrTarget.displayName}`}
-                </Text>
-                <Text style={styles.refundHeroAmount}>
-                  {formatVnd(refundQrTarget.netRefundVnd)}
-                </Text>
+        <ChiaNeInput
+          label="Ghi chú (không bắt buộc)"
+          value={potNote}
+          onChangeText={setPotNote}
+          placeholder="Ví dụ: Góp quỹ đợt 1 đi Đà Lạt"
+          maxLength={200}
+        />
+      </BottomSheetModal>
 
-                {refundQrTarget.bankPreview?.hasRealBank && refundVietQrPayload ? (
-                  <View style={styles.qrTransferCard}>
-                    <VietQrMatrix payload={refundVietQrPayload} size={196} />
-                    <View style={styles.qrBankInfoBox}>
-                      <Text style={styles.qrBankName}>
-                        {`${refundQrTarget.bankPreview.bankName} · ${refundQrTarget.bankPreview.bankAccountNumber}`}
-                      </Text>
-                      {refundQrTarget.bankPreview.bankAccountHolder ? (
-                        <Text style={styles.qrHolderName}>
-                          {refundQrTarget.bankPreview.bankAccountHolder}
-                        </Text>
-                      ) : null}
-                      <Text style={styles.qrMemoText} numberOfLines={1}>
-                        {`Nội dung: ${refundMemo}`}
-                      </Text>
-                    </View>
-                    <View style={styles.qrCopyRow}>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() =>
-                          void copyQrValue(
-                            'STK',
-                            refundQrTarget.bankPreview?.bankAccountNumber ?? ''
-                          )
-                        }
-                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.qrCopyBtnText}>📋 Chép STK</Text>
-                      </Pressable>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => void copyQrValue('nội dung CK', refundMemo)}
-                        style={({ pressed }) => [styles.qrCopyBtn, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.qrCopyBtnText}>📋 Chép nội dung</Text>
-                      </Pressable>
-                    </View>
-                    {copiedQrNotice ? (
-                      <Text style={styles.copiedQrToast}>{copiedQrNotice}</Text>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View style={styles.noBankCallout}>
-                    <Text style={styles.noBankCalloutText}>
-                      {`${refundQrTarget.displayName} chưa cập nhật tài khoản ngân hàng trong mục Tài khoản — bạn có thể hoàn bằng tiền mặt hoặc hỏi STK trực tiếp.`}
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.modalActions}>
-                  <ChiaNeButton
-                    label="Quay lại Chi tiết quỹ"
-                    variant="secondary"
-                    onPress={() => {
-                      setRefundQrTarget(null);
-                      setPotDetailOpen(true);
-                    }}
-                  />
-                  <ChiaNeButton
-                    label="Đóng"
-                    variant="quiet"
-                    onPress={() => setRefundQrTarget(null)}
-                  />
-                </View>
-              </>
+      {/* Pot Detail & Refund BottomSheet */}
+      <BottomSheetModal
+        visible={potDetailOpen}
+        onClose={() => setPotDetailOpen(false)}
+        title="🐷 Chi tiết & Hoàn quỹ"
+        scrollable
+        footer={
+          <View style={styles.modalActions}>
+            {group && !group.isArchived ? (
+              <ChiaNeButton
+                label="+ Góp thêm vào quỹ"
+                variant="primary"
+                onPress={() => {
+                  setPotDetailOpen(false);
+                  handleOpenPotContribute();
+                }}
+              />
             ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
+            <ChiaNeButton
+              label="Đóng"
+              variant="quiet"
+              onPress={() => setPotDetailOpen(false)}
+            />
+          </View>
+        }
+      >
+        {pot ? (
+          <>
+            <View style={styles.custodianBox}>
+              <View style={styles.custodianHeaderRow}>
+                <View style={styles.custodianTextCol}>
+                  <Text style={styles.custodianEyebrow}>🏦 THỦ QUỸ GIỮ TIỀN</Text>
+                  <Text style={styles.custodianName}>
+                    {custodian
+                      ? `${custodian.displayName}${custodian.isMe ? ' (bạn)' : ''}`
+                      : 'Trưởng nhóm'}
+                  </Text>
+                  {custodian?.bankPreview.hasRealBank ? (
+                    <Text style={styles.custodianBankSub}>
+                      {`${custodian.bankPreview.bankName} · ${custodian.bankPreview.bankAccountNumber}`}
+                    </Text>
+                  ) : (
+                    <Text style={styles.custodianNoBankSub}>
+                      Chưa liên kết tài khoản ngân hàng
+                    </Text>
+                  )}
+                </View>
+                {group && group.myRole !== 'GUEST' && !group.isArchived ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setCustodianPickerOpen((prev) => !prev)}
+                    style={({ pressed }) => [styles.changeCustodianBtn, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.changeCustodianBtnText}>
+                      {custodianPickerOpen ? 'Đóng' : 'Đổi Thủ quỹ'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {custodianPickerOpen && group ? (
+                <View style={styles.custodianPickerWrap}>
+                  <Text style={styles.potFieldLabel}>
+                    {updatingCustodian ? 'Đang cập nhật...' : 'Chọn thành viên giữ quỹ:'}
+                  </Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.potChipRow}
+                  >
+                    {group.members.map((m) => (
+                      <ChiaNeChip
+                        key={m.id}
+                        label={`${m.displayName}${m.bankPreview?.hasRealBank ? ' 🏦' : ''}`}
+                        active={custodian?.memberId === m.id}
+                        onPress={() => void handleChangeCustodian(m.id)}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.potStatsBar}>
+              <View style={styles.potStatItem}>
+                <Text style={styles.potStatLabel}>Đã góp</Text>
+                <Text style={[styles.potStatVal, tabularNums]}>
+                  {formatVnd(pot.totalContributedVnd)}
+                </Text>
+              </View>
+              <View style={styles.potStatItem}>
+                <Text style={styles.potStatLabel}>Đã chi</Text>
+                <Text style={[styles.potStatVal, tabularNums]}>
+                  {formatVnd(pot.totalSpentFromPotVnd)}
+                </Text>
+              </View>
+              <View style={styles.potStatItem}>
+                <Text style={styles.potStatLabel}>Còn lại</Text>
+                <Text
+                  style={[
+                    styles.potStatVal,
+                    tabularNums,
+                    pot.remainingPotVnd < 0 && styles.potNegativeText,
+                  ]}
+                >
+                  {formatVnd(pot.remainingPotVnd)}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.potSectionHeading}>
+              Bảng tính hoàn quỹ thừa từng người
+            </Text>
+            <View style={styles.potSectionList}>
+              {pot.memberSummaries.map((s) => {
+                const refundColor =
+                  s.netRefundVnd > 0
+                    ? colors.forest
+                    : s.netRefundVnd < 0
+                      ? colors.coral
+                      : colors.muted;
+                return (
+                  <View key={s.memberId} style={styles.potSummaryRow}>
+                    <View style={styles.potSummaryLeft}>
+                      <Text style={styles.potSummaryName}>
+                        {s.displayName}
+                        {s.isMe ? ' (bạn)' : ''}
+                      </Text>
+                      <Text style={styles.potSummarySub}>
+                        {`Góp ${formatVnd(s.contributedVnd)} · Tiêu ${formatVnd(
+                          s.consumedFromPotVnd
+                        )}`}
+                      </Text>
+                    </View>
+                    <View style={styles.potRefundRightCol}>
+                      <Text style={[styles.potRefundVal, tabularNums, { color: refundColor }]}>
+                        {formatVnd(s.netRefundVnd, { showSign: true })}
+                      </Text>
+                      {s.netRefundVnd > 0 ? (
+                        <ScalePressable
+                          accessibilityRole="button"
+                          onPress={() => {
+                            setPotDetailOpen(false);
+                            setRefundQrTarget(s);
+                          }}
+                          scaleTo={0.95}
+                          style={styles.refundQrPill}
+                        >
+                          <Text style={styles.refundQrPillText}>📲 QR Hoàn tiền</Text>
+                        </ScalePressable>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            <Text style={styles.potSectionHeading}>
+              {`Lịch sử góp quỹ (${pot.contributions.length})`}
+            </Text>
+            {pot.contributions.length === 0 ? (
+              <Text style={styles.potMetaText}>Chưa có lượt góp quỹ nào.</Text>
+            ) : (
+              <View style={styles.potSectionList}>
+                {pot.contributions.map((c) => {
+                  const d = new Date(c.createdAt);
+                  const dateLabel = `${d.getDate().toString().padStart(2, '0')}/${(
+                    d.getMonth() + 1
+                  )
+                    .toString()
+                    .padStart(2, '0')}`;
+                  return (
+                    <View key={c.id} style={styles.potHistoryRow}>
+                      <View style={styles.potSummaryLeft}>
+                        <Text style={styles.potSummaryName}>{c.memberName}</Text>
+                        <Text style={styles.potSummarySub}>
+                          {c.note ? `${dateLabel} · ${c.note}` : dateLabel}
+                        </Text>
+                      </View>
+                      <Text style={[styles.potContribAmount, tabularNums]}>
+                        {`+${formatVnd(c.amountVnd)}`}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        ) : null}
+      </BottomSheetModal>
+
+      {/* Refund VietQR BottomSheet */}
+      <BottomSheetModal
+        visible={refundQrTarget !== null}
+        onClose={() => setRefundQrTarget(null)}
+        title={
+          refundQrTarget
+            ? `📲 Hoàn quỹ thừa cho ${refundQrTarget.displayName}`
+            : undefined
+        }
+        footer={
+          <View style={styles.modalActions}>
+            <ChiaNeButton
+              label="Quay lại Chi tiết quỹ"
+              variant="secondary"
+              onPress={() => {
+                setRefundQrTarget(null);
+                setPotDetailOpen(true);
+              }}
+            />
+            <ChiaNeButton
+              label="Đóng"
+              variant="quiet"
+              onPress={() => setRefundQrTarget(null)}
+            />
+          </View>
+        }
+      >
+        {refundQrTarget ? (
+          <>
+            <Text style={[styles.refundHeroAmount, tabularNums]}>
+              {formatVnd(refundQrTarget.netRefundVnd)}
+            </Text>
+
+            {refundQrTarget.bankPreview?.hasRealBank && refundVietQrPayload ? (
+              <View style={styles.qrTransferCard}>
+                <VietQrMatrix payload={refundVietQrPayload} size={196} />
+                <View style={styles.qrBankInfoBox}>
+                  <Text style={styles.qrBankName}>
+                    {`${refundQrTarget.bankPreview.bankName} · ${refundQrTarget.bankPreview.bankAccountNumber}`}
+                  </Text>
+                  {refundQrTarget.bankPreview.bankAccountHolder ? (
+                    <Text style={styles.qrHolderName}>
+                      {refundQrTarget.bankPreview.bankAccountHolder}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.qrMemoText} numberOfLines={1}>
+                    {`Nội dung: ${refundMemo}`}
+                  </Text>
+                </View>
+                <View style={styles.qrCopyRow}>
+                  <ScalePressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      void copyQrValue(
+                        'STK',
+                        refundQrTarget.bankPreview?.bankAccountNumber ?? ''
+                      )
+                    }
+                    scaleTo={0.95}
+                    style={styles.qrCopyBtn}
+                  >
+                    <Text style={styles.qrCopyBtnText}>📋 Chép STK</Text>
+                  </ScalePressable>
+                  <ScalePressable
+                    accessibilityRole="button"
+                    onPress={() => void copyQrValue('nội dung CK', refundMemo)}
+                    scaleTo={0.95}
+                    style={styles.qrCopyBtn}
+                  >
+                    <Text style={styles.qrCopyBtnText}>📋 Chép nội dung</Text>
+                  </ScalePressable>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.noBankCallout}>
+                <Text style={styles.noBankCalloutText}>
+                  {`${refundQrTarget.displayName} chưa cập nhật tài khoản ngân hàng trong mục Tài khoản — bạn có thể hoàn bằng tiền mặt hoặc hỏi STK trực tiếp.`}
+                </Text>
+              </View>
+            )}
+          </>
+        ) : null}
+      </BottomSheetModal>
 
       <LuckyWheelModal
         visible={luckyWheelOpen}
@@ -1517,22 +1761,20 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   iconActionBtn: {
     width: 38,
     height: sizes.minTouchTarget,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  loadingWrap: {
+    marginTop: 12,
+  },
   pressed: {
     opacity: 0.85,
   },
   content: {
-    gap: 16,
+    gap: 14,
   },
   archivedBanner: {
     backgroundColor: colors.peach,
@@ -1544,6 +1786,63 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
     color: colors.coral,
+  },
+  justCreatedBanner: {
+    backgroundColor: colors.lime,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: 'rgba(23, 62, 50, 0.16)',
+    padding: 14,
+    gap: 10,
+    ...shadows.card,
+  },
+  justCreatedTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  justCreatedTitle: {
+    flex: 1,
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: colors.forest,
+  },
+  justCreatedDismiss: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: colors.forest,
+    paddingHorizontal: 4,
+  },
+  justCreatedActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  justCreatedCopyBtn: {
+    flex: 1,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  justCreatedCopyText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
+  },
+  justCreatedShareBtn: {
+    flex: 1,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.forest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  justCreatedShareText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.lime,
   },
   guestBanner: {
     backgroundColor: colors.lavender,
@@ -1595,26 +1894,43 @@ const styles = StyleSheet.create({
     color: colors.purple,
   },
   summaryCard: {
-    minHeight: 154,
+    minHeight: 136,
     backgroundColor: colors.lavender,
     borderRadius: radii.heroCard,
     padding: 18,
     justifyContent: 'space-between',
+    ...shadows.card,
+  },
+  summaryTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   summaryMeta: {
     fontFamily: fonts.medium,
     fontSize: 11,
     color: colors.purple,
+    flexShrink: 1,
+  },
+  myBalPill: {
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  myBalPillText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
   },
   summaryBottomRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    marginTop: 18,
+    marginTop: 14,
   },
   summaryAmountCol: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   summaryLabel: {
     fontFamily: fonts.regular,
@@ -1624,7 +1940,7 @@ const styles = StyleSheet.create({
   summaryAmount: {
     fontFamily: fonts.bold,
     fontSize: 29,
-    lineHeight: 40,
+    lineHeight: 38,
     color: colors.forest,
   },
   addFab: {
@@ -1634,16 +1950,49 @@ const styles = StyleSheet.create({
     backgroundColor: colors.forest,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadows.card,
   },
-  tabsRow: {
+  utilityBarRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
+    paddingVertical: 2,
   },
-  tabChip: {
-    flex: 1,
+  utilPill: {
+    height: 36,
+    borderRadius: radii.pill,
+    paddingHorizontal: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  utilPillLavender: {
+    backgroundColor: colors.lavender,
+  },
+  utilPillSage: {
+    backgroundColor: colors.sage,
+  },
+  utilPillForest: {
+    backgroundColor: colors.forest,
+  },
+  utilPillLime: {
+    backgroundColor: colors.lime,
+  },
+  utilPillLavenderText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.purple,
+  },
+  utilPillForestText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
+  },
+  utilPillLimeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.lime,
   },
   tabBody: {
-    gap: 16,
+    gap: 14,
   },
   bucketWrap: {
     gap: 10,
@@ -1671,23 +2020,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.muted,
     marginTop: 4,
+    textAlign: 'center',
   },
   emptyWrap: {
-    gap: 16,
+    gap: 14,
   },
   emptyHeroCard: {
     backgroundColor: colors.lavender,
     borderRadius: radii.heroCard,
-    padding: 24,
+    padding: 22,
     alignItems: 'center',
-    gap: 14,
-    minHeight: 340,
+    gap: 12,
+    minHeight: 240,
     justifyContent: 'center',
   },
   emptyIconBox: {
-    width: 100,
-    height: 100,
-    borderRadius: 28,
+    width: 84,
+    height: 84,
+    borderRadius: 24,
     backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1695,44 +2045,185 @@ const styles = StyleSheet.create({
   },
   emptyHeading: {
     fontFamily: fonts.bold,
-    fontSize: 24,
-    lineHeight: 34,
+    fontSize: 22,
+    lineHeight: 31,
     color: colors.purple,
     textAlign: 'center',
   },
   emptySub: {
     fontFamily: fonts.regular,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 19,
     color: colors.purple,
     textAlign: 'center',
   },
-  emptyTabsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-  },
   emptyActions: {
-    gap: 12,
+    gap: 10,
   },
   emptyFooter: {
     fontFamily: fonts.regular,
     fontSize: 12,
     color: colors.muted,
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 2,
+  },
+  balanceHeroCard: {
+    borderRadius: radii.featureCard,
+    gap: 6,
+  },
+  balanceHeroTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 16,
+    color: colors.ink,
+  },
+  balanceHeroSub: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.ink,
+  },
+  sectionBlock: {
+    gap: 10,
+  },
+  sectionHeading: {
+    fontFamily: fonts.semiBold,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  transferList: {
+    gap: 10,
+  },
+  pendingRow: {
+    minHeight: 62,
+    backgroundColor: colors.lavender,
+    borderRadius: radii.input,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  pendingTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  pendingTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.purple,
+  },
+  pendingSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.purple,
+  },
+  pendingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  transferCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 14,
+    gap: 10,
+    ...shadows.card,
+  },
+  transferTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  transferPeople: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+  },
+  transferPerson: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.ink,
+    flexShrink: 1,
+  },
+  transferAmount: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: colors.forest,
+  },
+  transferActionRow: {
+    flexDirection: 'row',
+  },
+  payNowBtn: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    backgroundColor: colors.forest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  payNowBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.lime,
+  },
+  remindBtn: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    backgroundColor: colors.lavender,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  remindBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.purple,
+  },
+  eyebrow: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 2,
+    marginBottom: -4,
+  },
+  balanceFooterLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  secondaryLink: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
   },
   membersCard: {
     backgroundColor: colors.white,
     borderRadius: radii.card,
-    paddingHorizontal: 18,
-    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    ...shadows.card,
   },
   balanceRow: {
     minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 10,
+  },
+  memberAvatarName: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
   memberInfoCol: {
@@ -1781,72 +2272,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.forest,
   },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(23, 62, 50, 0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: colors.white,
-    borderRadius: radii.heroCard,
-    padding: 22,
-    gap: 12,
-  },
-  modalTitle: {
-    ...typography.title,
-    color: colors.ink,
-  },
-  modalDesc: {
-    ...typography.body,
-    color: colors.muted,
-  },
   modalActions: {
     gap: 10,
-    marginTop: 4,
-  },
-  socialFunRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  funPillBtn: {
-    flex: 1,
-    minWidth: 112,
-    minHeight: 44,
-    borderRadius: radii.button,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  funPillLavender: {
-    backgroundColor: colors.lavender,
-  },
-  funPillLavenderText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    color: colors.purple,
-  },
-  funPillForest: {
-    backgroundColor: colors.forest,
-  },
-  funPillForestText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    color: colors.lime,
-  },
-  funPillLime: {
-    backgroundColor: colors.lime,
-    borderWidth: 1,
-    borderColor: colors.forest,
-  },
-  funPillLimeText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    color: colors.forest,
   },
   potCard: {
     backgroundColor: colors.white,
@@ -1855,17 +2282,7 @@ const styles = StyleSheet.create({
     gap: 10,
     borderWidth: 1,
     borderColor: colors.line,
-  },
-  potEmptyCard: {
-    backgroundColor: colors.white,
-    borderRadius: radii.card,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
+    ...shadows.card,
   },
   potHeaderRow: {
     flexDirection: 'row',
@@ -1952,15 +2369,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  potDetailModalCard: {
-    maxHeight: '85%',
-  },
-  potDetailScroll: {
-    maxHeight: 380,
-  },
-  potDetailScrollContent: {
-    gap: 12,
-  },
   potStatsBar: {
     flexDirection: 'row',
     backgroundColor: colors.paper,
@@ -2039,16 +2447,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 11,
     color: colors.purple,
-  },
-  potContributeModalCard: {
-    maxHeight: '90%',
-  },
-  potContributeScroll: {
-    maxHeight: 450,
-  },
-  potContributeScrollContent: {
-    gap: 12,
-    paddingBottom: 4,
   },
   custodianBox: {
     backgroundColor: colors.lavender,
@@ -2149,11 +2547,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   qrCopyBtnText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 11,
-    color: colors.forest,
-  },
-  copiedQrToast: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
     color: colors.forest,

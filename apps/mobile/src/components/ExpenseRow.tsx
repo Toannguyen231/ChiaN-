@@ -1,12 +1,13 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { ExpenseCategory } from '@chiane/shared';
 import IconCoffee from '../../assets/figma/icon-coffee.svg';
 import IconFood from '../../assets/figma/icon-food.svg';
 import IconReceipt from '../../assets/figma/icon-receipt.svg';
 import IconStay from '../../assets/figma/icon-expense-stay.svg';
 import IconTransport from '../../assets/figma/icon-taxi.svg';
-import { colors, fonts, radii } from '../theme/tokens';
+import { colors, fonts, radii, shadows, tabularNums } from '../theme/tokens';
+import { ScalePressable } from './motion/ScalePressable';
 
 export interface ExpenseRowProps {
   title: string;
@@ -37,11 +38,12 @@ export function ExpenseRow({
   const { badgeColor, Icon } = CATEGORY_META[category] ?? CATEGORY_META.OTHER;
 
   return (
-    <Pressable
+    <ScalePressable
       accessibilityRole={onPress ? 'button' : undefined}
       disabled={!onPress}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && onPress && styles.pressed]}
+      scaleTo={0.98}
+      style={styles.row}
     >
       <View style={[styles.badge, { backgroundColor: badgeColor }]}>
         <Icon width={20} height={20} />
@@ -54,24 +56,24 @@ export function ExpenseRow({
           {subtitle}
         </Text>
       </View>
-      <Text style={styles.amount}>{amountText}</Text>
-    </Pressable>
+      <Text style={[styles.amount, tabularNums]}>{amountText}</Text>
+    </ScalePressable>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: 76,
+    minHeight: 74,
     backgroundColor: colors.white,
     borderRadius: radii.row,
+    borderWidth: 1,
+    borderColor: colors.line,
     paddingHorizontal: 14,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  pressed: {
-    opacity: 0.9,
+    ...shadows.card,
   },
   badge: {
     width: 44,

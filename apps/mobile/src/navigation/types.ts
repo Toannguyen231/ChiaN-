@@ -1,4 +1,5 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { GroupCategory } from '@chiane/shared';
 
 export type AuthStackParamList = {
   Welcome: undefined;
@@ -21,12 +22,22 @@ export type MainTabParamList = {
 export type AppStackParamList = {
   DisplayNameSetup: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
-  CreateGroup: undefined;
-  GroupDetails: { groupId: string };
+  CreateGroup:
+    | { initialCategory?: GroupCategory; initialName?: string }
+    | undefined;
+  GroupDetails: {
+    groupId: string;
+    initialTab?: 'EXPENSES' | 'BALANCES' | 'MEMBERS';
+    justCreated?: boolean;
+  };
   GroupSettings: { groupId: string };
   MemberDetails: { groupId: string; memberId: string };
   InviteFriends: { groupId: string; fromCreate?: boolean };
-  AddExpense: { groupId: string; expenseId?: string };
+  AddExpense: {
+    groupId: string;
+    expenseId?: string;
+    autoScanReceipt?: boolean;
+  };
   SplitMethod: { groupId: string };
   ExpenseDetails: { expenseId: string };
   GroupBalances: { groupId: string };

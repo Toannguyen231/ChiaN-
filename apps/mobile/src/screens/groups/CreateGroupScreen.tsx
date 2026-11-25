@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { GroupCategory } from '@chiane/shared';
 import IconFood from '../../../assets/figma/icon-food.svg';
@@ -8,16 +8,19 @@ import IconReceipt from '../../../assets/figma/icon-receipt.svg';
 import IconTrip from '../../../assets/figma/icon-trip.svg';
 import {
   AppHeader,
+  AvatarBadge,
   ChiaNeButton,
   ChiaNeChip,
   ChiaNeInput,
+  ScalePressable,
   ScreenContainer,
+  showToast,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
 import { ApiClientError } from '../../services/apiClient';
 import { groupsApi } from '../../services/groupsApi';
 import { useGroupsStore } from '../../store/groupsStore';
-import { colors, fonts, radii } from '../../theme/tokens';
+import { colors, fonts, radii, shadows } from '../../theme/tokens';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CreateGroup'>;
 
@@ -31,13 +34,37 @@ const PRIMARY_CATEGORIES: Array<{
   { key: 'HOUSEHOLD', label: 'Nhà chung', Icon: IconHome },
 ];
 
-export function CreateGroupScreen({ navigation }: Props) {
+export function CreateGroupScreen({ navigation, route }: Props) {
+  const fetchGroupDetail = useGroupsStore((s) => s.fetchGroupDetail);
   const setGroupDetail = useGroupsStore((s) => s.setGroupDetail);
 
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState<GroupCategory>('TRAVEL');
+  const [name, setName] = useState(route.params?.initialName ?? '');
+  const [category, setCategory] = useState<GroupCategory>(
+    route.params?.initialCategory ?? 'TRAVEL'
+  );
+  const [memberDraft, setMemberDraft] = useState('');
+  const [quickMembers, setQuickMembers] = useState<string[]>([]);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const handleAddQuickMember = () => {
+    const trimmed = memberDraft.trim();
+    if (!trimmed) return;
+    const exists = quickMembers.some(
+      (m) => m.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (exists) {
+      showToast({ message: `${trimmed} đã có trong danh sách rồi.`, tone: 'warning' });
+      setMemberDraft('');
+      return;
+    }
+    setQuickMembers((prev) => [...prev, trimmed]);
+    setMemberDraft('');
+  };
+
+  const handleRemoveQuickMember = (target: string) => {
+    setQuickMembers((prev) => prev.filter((m) => m !== target));
+  };
 
   const handleSubmit = async () => {
     const trimmed = name.trim();
@@ -45,6 +72,13 @@ export function CreateGroupScreen({ navigation }: Props) {
       setErrorText('Vui lòng nhập tên nhóm trước nhé.');
       return;
     }
+
+    const pendingMember = memberDraft.trim();
+    const membersToAdd =
+      pendingMember &&
+      !quickMembers.some((m) => m.toLowerCase() === pendingMember.toLowerCase())
+        ? [...quickMembers, pendingMember]
+        : quickMembers;
 
     setSubmitting(true);
     setErrorText(null);
@@ -54,7 +88,21 @@ export function CreateGroupScreen({ navigation }: Props) {
         category,
       });
       setGroupDetail(group);
-      navigation.replace('InviteFriends', { groupId: group.id, fromCreate: true });
+
+      if (membersToAdd.length > 0) {
+        await Promise.allSettled(
+          membersToAdd.map((displayName) =>
+            groupsApi.addMember(group.id, { displayName })
+          )
+        );
+        await fetchGroupDetail(group.id).catch(() => {});
+      }
+
+      showToast('Đã tạo nhóm mới!');
+      navigation.replace('GroupDetails', {
+        groupId: group.id,
+        justCreated: true,
+      });
     } catch (err) {
       setErrorText(
         err instanceof ApiClientError
@@ -74,7 +122,11 @@ export function CreateGroupScreen({ navigation }: Props) {
       }
       footer={
         <ChiaNeButton
-          label="Tạo nhóm"
+          label={
+            quickMembers.length > 0
+              ? `Tạo nhóm (${quickMembers.length + 1} người)`
+              : 'Tạo nhóm'
+          }
           variant="primary"
           loading={submitting}
           disabled={!name.trim()}
@@ -93,7 +145,7 @@ export function CreateGroupScreen({ navigation }: Props) {
         }}
         placeholder="Đà Lạt cuối tuần"
         maxLength={80}
-        autoFocus
+        autoFocus={!route.params?.initialName}
         errorText={errorText}
         containerStyle={styles.fieldGap}
       />
@@ -104,11 +156,12 @@ export function CreateGroupScreen({ navigation }: Props) {
           const selected = category === item.key;
           const { Icon } = item;
           return (
-            <Pressable
+            <ScalePressable
               key={item.key}
               accessibilityRole="button"
               accessibilityState={{ selected }}
               onPress={() => setCategory(item.key)}
+              scaleTo={0.96}
               style={[
                 styles.categoryTile,
                 selected && styles.categoryTileSelected,
@@ -116,7 +169,7 @@ export function CreateGroupScreen({ navigation }: Props) {
             >
               <Icon width={29} height={29} />
               <Text style={styles.categoryLabel}>{item.label}</Text>
-            </Pressable>
+            </ScalePressable>
           );
         })}
       </View>
@@ -130,15 +183,76 @@ export function CreateGroupScreen({ navigation }: Props) {
         {category === 'OTHER' ? <IconReceipt width={18} height={18} /> : null}
       </View>
 
-      <Text style={styles.fieldLabel}>Đơn vị tiền tệ</Text>
-      <View style={styles.readonlyInput}>
-        <Text style={styles.readonlyText}>VND · Việt Nam Đồng</Text>
+      {/* Quick Members Inline Section */}
+      <View style={styles.quickMembersSection}>
+        <View style={styles.quickMembersHeader}>
+          <Text style={styles.sectionLabelNoMargin}>
+            Thêm nhanh bạn bè (không bắt buộc)
+          </Text>
+          <View style={styles.currencyBadge}>
+            <Text style={styles.currencyBadgeText}>VND (₫)</Text>
+          </View>
+        </View>
+        <Text style={styles.quickMembersHint}>
+          Nhập tên từng người để chia tiền được ngay, hoặc gửi link mời bạn sau.
+        </Text>
+
+        <View style={styles.quickInputRow}>
+          <TextInput
+            value={memberDraft}
+            onChangeText={setMemberDraft}
+            placeholder="Ví dụ: Minh, Thảo..."
+            placeholderTextColor={colors.muted}
+            maxLength={40}
+            returnKeyType="done"
+            onSubmitEditing={handleAddQuickMember}
+            style={styles.quickInput}
+          />
+          <ScalePressable
+            accessibilityRole="button"
+            disabled={!memberDraft.trim()}
+            onPress={handleAddQuickMember}
+            scaleTo={0.95}
+            style={[
+              styles.addQuickBtn,
+              !memberDraft.trim() && styles.addQuickBtnDisabled,
+            ]}
+          >
+            <Text
+              style={[
+                styles.addQuickBtnText,
+                !memberDraft.trim() && styles.addQuickBtnTextDisabled,
+              ]}
+            >
+              + Thêm
+            </Text>
+          </ScalePressable>
+        </View>
+
+        {quickMembers.length > 0 ? (
+          <View style={styles.memberChipsWrap}>
+            {quickMembers.map((memberName) => (
+              <Pressable
+                key={memberName}
+                accessibilityRole="button"
+                accessibilityLabel={`Xóa ${memberName}`}
+                onPress={() => handleRemoveQuickMember(memberName)}
+                style={({ pressed }) => [
+                  styles.memberChip,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <AvatarBadge name={memberName} size={22} />
+                <Text style={styles.memberChipName}>{memberName}</Text>
+                <Text style={styles.memberChipRemove}>✕</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       <Text style={styles.helperText}>
-        {
-          'Bạn có thể mời bạn bè ngay sau khi tạo nhóm.\nThành viên được mời không cần có tài khoản trước.'
-        }
+        Thành viên được mời sau vẫn có thể xem nhóm qua liên kết mà không cần tạo tài khoản trước.
       </Text>
     </ScreenContainer>
   );
@@ -147,21 +261,28 @@ export function CreateGroupScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   heroHeading: {
     fontFamily: fonts.bold,
-    fontSize: 29,
-    lineHeight: 42,
+    fontSize: 28,
+    lineHeight: 39,
     color: colors.forest,
-    marginTop: 8,
-    marginBottom: 24,
+    marginTop: 6,
+    marginBottom: 20,
   },
   fieldGap: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   sectionLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
     lineHeight: 20,
     color: colors.ink,
-    marginBottom: 14,
+    marginBottom: 12,
+  },
+  sectionLabelNoMargin: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.ink,
+    flex: 1,
   },
   categoryGrid: {
     flexDirection: 'row',
@@ -169,18 +290,20 @@ const styles = StyleSheet.create({
   },
   categoryTile: {
     flex: 1,
-    height: 107,
+    height: 102,
     backgroundColor: colors.white,
     borderRadius: radii.card,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 10,
     borderWidth: 1,
     borderColor: colors.line,
+    ...shadows.card,
   },
   categoryTileSelected: {
     backgroundColor: colors.lavender,
     borderColor: colors.purple,
+    borderWidth: 1.5,
   },
   categoryLabel: {
     fontFamily: fonts.medium,
@@ -194,29 +317,109 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginTop: 12,
-    marginBottom: 24,
-  },
-  fieldLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.ink,
-    marginBottom: 10,
-  },
-  readonlyInput: {
-    height: 60,
-    backgroundColor: colors.white,
-    borderRadius: radii.input,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
     marginBottom: 22,
   },
-  readonlyText: {
+  quickMembersSection: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 16,
+    gap: 10,
+    marginBottom: 18,
+    ...shadows.card,
+  },
+  quickMembersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  currencyBadge: {
+    backgroundColor: colors.sage,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  currencyBadgeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.forest,
+  },
+  quickMembersHint: {
     fontFamily: fonts.regular,
-    fontSize: 14,
+    fontSize: 11,
+    lineHeight: 16,
     color: colors.muted,
+    marginTop: -4,
+  },
+  quickInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quickInput: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 14,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: colors.ink,
+  },
+  addQuickBtn: {
+    height: 46,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: colors.forest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addQuickBtnDisabled: {
+    backgroundColor: colors.line,
+  },
+  addQuickBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.lime,
+  },
+  addQuickBtnTextDisabled: {
+    color: colors.muted,
+  },
+  memberChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingTop: 2,
+  },
+  memberChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.paper,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingVertical: 5,
+    paddingLeft: 6,
+    paddingRight: 10,
+  },
+  memberChipName: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.ink,
+  },
+  memberChipRemove: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+    color: colors.muted,
+    marginLeft: 2,
+  },
+  pressed: {
+    opacity: 0.75,
   },
   helperText: {
     fontFamily: fonts.regular,
