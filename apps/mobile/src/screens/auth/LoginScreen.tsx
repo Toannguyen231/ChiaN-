@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -17,7 +17,7 @@ import {
   ScreenContainer,
 } from '../../components';
 import type { AuthStackParamList } from '../../navigation/types';
-import { ApiClientError } from '../../services/apiClient';
+import { ApiClientError, getPublicWebUrl } from '../../services/apiClient';
 import { useAuthStore } from '../../store/authStore';
 import { colors, fonts, typography } from '../../theme/tokens';
 
@@ -129,9 +129,23 @@ export function LoginScreen({ navigation }: Props) {
       </InfoCard>
 
       <Text style={styles.termsText}>
-        {
-          'Tiếp tục nghĩa là bạn đồng ý với\nĐiều khoản sử dụng và Chính sách riêng tư.'
-        }
+        {'Tiếp tục nghĩa là bạn đồng ý với\n'}
+        <Text
+          accessibilityRole="link"
+          style={styles.termsLink}
+          onPress={() => void Linking.openURL(getPublicWebUrl('/legal/terms'))}
+        >
+          Điều khoản sử dụng
+        </Text>
+        {' và '}
+        <Text
+          accessibilityRole="link"
+          style={styles.termsLink}
+          onPress={() => void Linking.openURL(getPublicWebUrl('/legal/privacy'))}
+        >
+          Chính sách riêng tư
+        </Text>
+        {'.'}
       </Text>
 
       <Pressable
@@ -199,6 +213,11 @@ const styles = StyleSheet.create({
   termsText: {
     ...typography.caption,
     color: colors.muted,
+  },
+  termsLink: {
+    fontFamily: fonts.semiBold,
+    color: colors.forest,
+    textDecorationLine: 'underline',
   },
   inviteLinkBtn: {
     marginTop: 18,

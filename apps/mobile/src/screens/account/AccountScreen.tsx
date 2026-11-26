@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import {
   useNavigation,
   type CompositeNavigationProp,
@@ -22,9 +22,10 @@ import {
   IconOffline,
   IconShare,
   ScreenContainer,
+  showToast,
 } from '../../components';
 import type { AppStackParamList, MainTabParamList } from '../../navigation/types';
-import { ApiClientError } from '../../services/apiClient';
+import { ApiClientError, getPublicWebUrl } from '../../services/apiClient';
 import { authApi } from '../../services/authApi';
 import { useAuthStore } from '../../store/authStore';
 import { useGroupsStore } from '../../store/groupsStore';
@@ -41,6 +42,7 @@ export function AccountScreen() {
   const user = useAuthStore((s) => s.user);
   const refreshProfile = useAuthStore((s) => s.refreshProfile);
   const logout = useAuthStore((s) => s.logout);
+  const deleteAccount = useAuthStore((s) => s.deleteAccount);
   const clearGroupsStore = useGroupsStore((s) => s.clearStore);
   const offlineCount = useOfflineQueueStore((s) => s.items.length);
 
@@ -52,6 +54,8 @@ export function AccountScreen() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const hasBank = Boolean(user?.bankBin && user?.bankAccountNumber);
 
@@ -99,6 +103,28 @@ export function AccountScreen() {
     } finally {
       setLoggingOut(false);
       setLogoutOpen(false);
+    }
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await deleteAccount();
+      clearGroupsStore();
+      setDeleteOpen(false);
+      showToast('Đã xóa vĩnh viễn tài khoản của bạn.');
+    } catch (err) {
+      setDeleteOpen(false);
+      showToast({
+        message:
+          err instanceof ApiClientError
+            ? err.message
+            : 'Không thể xóa tài khoản lúc này. Vui lòng thử lại.',
+        tone: 'error',
+        durationMs: 4000,
+      });
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -206,6 +232,17 @@ export function AccountScreen() {
           <View style={styles.divider} />
 
           <Pressable
+            onPress={() => void Linking.openURL(getPublicWebUrl('/legal/privacy'))}
+            style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
+          >
+            <IconShield width={21} height={21} />
+            <Text style={styles.menuLabel}>Điều khoản & Chính sách riêng tư</Text>
+            <IconChevron width={18} height={18} />
+          </Pressable>
+
+          <View style={styles.divider} />
+
+          <Pressable
             onPress={() => setHelpOpen(true)}
             style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
           >
@@ -220,6 +257,14 @@ export function AccountScreen() {
           variant="quiet"
           onPress={() => setLogoutOpen(true)}
         />
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setDeleteOpen(true)}
+          style={({ pressed }) => [styles.deleteAccountBtn, pressed && styles.pressed]}
+        >
+          <Text style={styles.deleteAccountText}>Xóa tài khoản vĩnh viễn</Text>
+        </Pressable>
 
         <View style={styles.footerWrap}>
           <Text style={styles.versionText}>ChiaNè 1.0.0</Text>
@@ -284,6 +329,28 @@ export function AccountScreen() {
                 '• Mọi khoản chia đều làm tròn đến từng đồng (+1 ₫) để tổng luôn khớp 100%.\n• Mã VietQR chỉ được tạo từ số tài khoản bạn lưu.\n• Số dư nhóm chỉ cập nhật sau khi người nhận tiền bấm xác nhận.\n• Nếu mất mạng khi thêm khoản chi, ChiaNè tự động lưu trên máy để bạn không bị mất dữ liệu.'
               }
             </Text>
+            <View style={styles.legalLinksRow}>
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => void Linking.openURL(getPublicWebUrl('/legal/privacy'))}
+              >
+                <Text style={styles.legalLinkText}>Chính sách riêng tư</Text>
+              </Pressable>
+              <Text style={styles.legalDot}>·</Text>
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => void Linking.openURL(getPublicWebUrl('/legal/terms'))}
+              >
+                <Text style={styles.legalLinkText}>Điều khoản</Text>
+              </Pressable>
+              <Text style={styles.legalDot}>·</Text>
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => void Linking.openURL(getPublicWebUrl('/legal/delete-account'))}
+              >
+                <Text style={styles.legalLinkText}>Xóa tài khoản</Text>
+              </Pressable>
+            </View>
             <ChiaNeButton
               label="Đã hiểu"
               variant="primary"
@@ -302,6 +369,17 @@ export function AccountScreen() {
         loading={loggingOut}
         onConfirm={() => void handleConfirmLogout()}
         onCancel={() => setLogoutOpen(false)}
+      />
+
+      <ConfirmDialog
+        visible={deleteOpen}
+        title="Xóa vĩnh viễn tài khoản?"
+        description="Hồ sơ cá nhân, số điện thoại và tài khoản ngân hàng VietQR của bạn sẽ bị xóa vĩnh viễn và không thể khôi phục. Bạn cần tất toán hết số dư trong các nhóm đang hoạt động trước khi xóa."
+        confirmLabel="Xóa vĩnh viễn"
+        destructive
+        loading={deletingAccount}
+        onConfirm={() => void handleConfirmDeleteAccount()}
+        onCancel={() => setDeleteOpen(false)}
       />
     </ScreenContainer>
   );
@@ -462,5 +540,32 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     gap: 10,
+  },
+  deleteAccountBtn: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteAccountText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.coral,
+  },
+  legalLinksRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legalLinkText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
+    textDecorationLine: 'underline',
+  },
+  legalDot: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.muted,
   },
 });

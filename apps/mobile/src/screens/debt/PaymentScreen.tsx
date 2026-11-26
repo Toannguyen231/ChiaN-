@@ -138,6 +138,7 @@ export function PaymentScreen({ navigation, route }: Props) {
         amountVnd,
         method,
         memo: method === 'BANK_TRANSFER' ? memo : 'Thanh toán tiền mặt',
+        autoConfirm: recipient.isPlaceholder,
         idempotencyKey: idempotencyKeyRef.current,
       });
       showToast(
@@ -145,7 +146,7 @@ export function PaymentScreen({ navigation, route }: Props) {
           ? 'Đã báo chuyển khoản thành công!'
           : 'Đã báo thanh toán tiền mặt!'
       );
-      navigation.replace('WaitingConfirmation', { settlementId: settlement.id });
+      navigation.replace(settlement.status === 'CONFIRMED' ? 'PaymentCompleted' : 'WaitingConfirmation', { settlementId: settlement.id });
     } catch (err) {
       setErrorText(
         err instanceof ApiClientError
@@ -269,7 +270,7 @@ export function PaymentScreen({ navigation, route }: Props) {
                 <View style={styles.cashTextCol}>
                   <Text style={styles.cashTitle}>Thanh toán trực tiếp bằng tiền mặt</Text>
                   <Text style={styles.cashSub}>
-                    {`Gửi ${formatVnd(amountVnd)} cho ${recipient.displayName}, sau đó bấm nút xác nhận bên dưới để báo cho bạn ấy duyệt.`}
+                    {`Gửi ${formatVnd(amountVnd)} cho ${recipient.displayName}, sau đó bấm nút bên dưới để ghi nhận.`}
                   </Text>
                 </View>
               </View>
@@ -279,7 +280,7 @@ export function PaymentScreen({ navigation, route }: Props) {
           <View style={styles.safetyCard}>
             <IconShieldPurple width={22} height={22} />
             <Text style={styles.safetyText}>
-              {method === 'BANK_TRANSFER'
+              {recipient.isPlaceholder ? 'Thành viên này chưa dùng app — khoản thanh toán sẽ được ghi nhận hoàn tất ngay.' : method === 'BANK_TRANSFER'
                 ? 'Kiểm tra kỹ tên người nhận trước khi chuyển. Chỉ bấm "Tôi đã chuyển khoản" sau khi đã thanh toán xong.'
                 : 'Số dư trong nhóm sẽ được gạch nợ ngay sau khi người nhận xác nhận đã nhận tiền.'}
             </Text>

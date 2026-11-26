@@ -40,6 +40,7 @@ export const settlementsApi = {
       toMemberId: string;
       amountVnd: number;
       method: SettlementMethod;
+      autoConfirm?: boolean;
       memo?: string;
       idempotencyKey?: string;
     }

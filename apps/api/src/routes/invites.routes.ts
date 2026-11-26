@@ -1,3 +1,4 @@
+import { claimPlaceholder, isPlaceholder } from '../services/placeholder.service';
 import crypto from 'node:crypto';
 import {
   claimGuestSchema,
@@ -34,7 +35,7 @@ export async function registerInvitesRoutes(
         createdByUser: { select: { displayName: true } },
         members: {
           where: { status: 'ACTIVE' },
-          select: { id: true, role: true, displayName: true },
+          select: { id: true, userId: true, guestTokenHash: true, role: true, displayName: true },
           orderBy: { joinedAt: 'asc' },
         },
       },
@@ -47,7 +48,7 @@ export async function registerInvitesRoutes(
     const adminMember = group.members.find((m) => m.role === 'ADMIN');
     const inviterName =
       adminMember?.displayName ||
-      group.createdByUser.displayName.trim() ||
+      group.createdByUser?.displayName.trim() ||
       'Hội bạn';
 
     const preview: InvitePreviewDto = {
@@ -57,6 +58,7 @@ export async function registerInvitesRoutes(
       isArchived: group.isArchived,
       memberCount: group.members.length,
       inviterName,
+      claimableMembers: group.members.filter(isPlaceholder).map(({ id, displayName }) => ({ id, displayName })),
       inviteCode: group.inviteCode,
     };
 
@@ -85,12 +87,13 @@ export async function registerInvitesRoutes(
     const guestTokenHash = hashGuestToken(rawGuestToken);
 
     const member = await prisma.$transaction(async (tx) => {
-      const created = await tx.groupMember.create({
+      const claimed = input.claimMemberId ? await claimPlaceholder(tx, group.id, input.claimMemberId, { guestTokenHash, role: 'GUEST' }, input.displayName) : null;
+      const created = claimed ?? await tx.groupMember.create({
         data: {
           groupId: group.id,
           userId: null,
           guestTokenHash,
-          displayName: input.displayName,
+          displayName: input.displayName!,
           role: 'GUEST',
           status: 'ACTIVE',
         },
@@ -105,7 +108,7 @@ export async function registerInvitesRoutes(
         groupId: group.id,
         actorMemberId: created.id,
         type: 'MEMBER_JOINED',
-        title: `${created.displayName} đã tham gia với tư cách khách`,
+        title: claimed ? `${created.displayName} đã nhận vai ${claimed.originalName}` : `${created.displayName} đã tham gia với tư cách khách`,
         subtitle: group.name,
         metadata: { memberId: created.id },
       });

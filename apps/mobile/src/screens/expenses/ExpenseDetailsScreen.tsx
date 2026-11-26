@@ -17,7 +17,7 @@ import {
   StateView,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
-import { ApiClientError } from '../../services/apiClient';
+import { ApiClientError, receiptImageSource } from '../../services/apiClient';
 import { expensesApi, type ExpenseDetailResponse } from '../../services/expensesApi';
 import { colors, fonts, radii } from '../../theme/tokens';
 
@@ -185,7 +185,7 @@ export function ExpenseDetailsScreen({ navigation, route }: Props) {
             {expense.receiptImageUrl ? (
               <View style={styles.receiptContainer}>
                 <Text style={styles.receiptHeading}>🧾 Hóa đơn đính kèm</Text>
-                {expense.receiptImageUrl.startsWith('http') ||
+                {expense.receiptImageUrl.startsWith('/api/v1/uploads/') || expense.receiptImageUrl.startsWith('http') ||
                 expense.receiptImageUrl.startsWith('data:image') ||
                 expense.receiptImageUrl.startsWith('file:') ? (
                   <Pressable
@@ -193,7 +193,7 @@ export function ExpenseDetailsScreen({ navigation, route }: Props) {
                     style={styles.receiptImageWrap}
                   >
                     <Image
-                      source={{ uri: expense.receiptImageUrl }}
+                      source={{ uri: receiptImageSource(expense.receiptImageUrl) }}
                       style={styles.receiptThumbnail}
                       resizeMode="cover"
                     />
@@ -253,7 +253,7 @@ export function ExpenseDetailsScreen({ navigation, route }: Props) {
           <View style={styles.viewerCard}>
             {expense?.receiptImageUrl ? (
               <Image
-                source={{ uri: expense.receiptImageUrl }}
+                source={{ uri: receiptImageSource(expense.receiptImageUrl) }}
                 style={styles.viewerImage}
                 resizeMode="contain"
               />

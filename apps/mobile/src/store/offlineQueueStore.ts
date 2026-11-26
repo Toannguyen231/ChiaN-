@@ -1,3 +1,4 @@
+import { uploadReceiptIfNeeded } from '../services/receiptUploads';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {
   SyncExpensePayload,
@@ -100,12 +101,17 @@ export const useOfflineQueueStore = create<OfflineQueueState>((set, get) => ({
 
     set({ syncing: true });
     try {
-      const mutations: SyncMutationItem[] = current.map((item) => ({
-        clientMutationId: item.clientMutationId,
-        type: 'CREATE_EXPENSE',
-        groupId: item.groupId,
-        payload: item.payload,
-      }));
+      const mutations: SyncMutationItem[] = [];
+      const uploadErrors = new Map<string, string>();
+      for (const item of current) {
+        try {
+          const receiptImageUrl = await uploadReceiptIfNeeded(item.payload.receiptImageUrl);
+          mutations.push({ clientMutationId: item.clientMutationId, groupId: item.groupId,
+            type: 'CREATE_EXPENSE', payload: { ...item.payload, receiptImageUrl } });
+        } catch (error) {
+          uploadErrors.set(item.clientMutationId, error instanceof Error ? error.message : 'Chưa tải được ảnh.');
+        }
+      }
 
       const res = await apiRequest<{ results: SyncMutationResultDto[] }>(
         '/api/v1/sync/mutations',
@@ -130,7 +136,7 @@ export const useOfflineQueueStore = create<OfflineQueueState>((set, get) => ({
         } else {
           remaining.push({
             ...item,
-            lastError: result?.errorMessage ?? 'Không thể đồng bộ lúc này.',
+            lastError: uploadErrors.get(item.clientMutationId) ?? result?.errorMessage ?? 'Không thể đồng bộ lúc này.',
           });
         }
       }

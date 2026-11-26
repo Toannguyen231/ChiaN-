@@ -1,3 +1,4 @@
+import { CollectPaymentButton } from '../../components/CollectPaymentButton';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -166,17 +167,27 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
     }, [loadGroup])
   );
 
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('ALL');
+  const filteredExpenses = useMemo(() => {
+    const expenses = group?.expenses ?? [];
+    if (expenses.length < 2) return expenses;
+    const term = query.trim().toLocaleLowerCase('vi');
+    return expenses.filter(exp => (category === 'ALL' || exp.category === category) &&
+      [exp.title, exp.paidByName].some(value => value.toLocaleLowerCase('vi').includes(term)));
+  }, [group, query, category]);
+
   const groupedExpenses = useMemo(() => {
     if (!group) return [] as Array<{ label: string; items: ExpenseDto[] }>;
     const buckets = new Map<string, ExpenseDto[]>();
-    for (const exp of group.expenses) {
+    for (const exp of filteredExpenses) {
       const label = formatMonthBucket(exp.expenseDate);
       const list = buckets.get(label) ?? [];
       list.push(exp);
       buckets.set(label, list);
     }
     return Array.from(buckets.entries()).map(([label, items]) => ({ label, items }));
-  }, [group]);
+  }, [group, filteredExpenses]);
 
   const handleCopyInvite = async () => {
     if (!group) return;
@@ -634,7 +645,11 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
             <View style={styles.transferList}>
               {suggestedList.map((transfer, idx) => {
                 const canRemind = transfer.isToMe && group.myRole !== 'GUEST';
-                const canPay = transfer.isFromMe;
+                const canPay = transfer.isFromMe && !group.isArchived;
+                const canCollect =
+                  transfer.isToMe &&
+                  !group.isArchived &&
+                  (Boolean(transfer.fromIsPlaceholder) || group.myRole === 'ADMIN');
                 return (
                   <FadeSlideIn
                     key={`${transfer.fromMemberId}-${transfer.toMemberId}`}
@@ -658,7 +673,7 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                         </Text>
                       </View>
 
-                      {canPay || canRemind ? (
+                      {canPay || canRemind || canCollect ? (
                         <View style={styles.transferActionRow}>
                           {canPay ? (
                             <ScalePressable
@@ -677,25 +692,39 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
                                 Trả ngay qua VietQR / Tiền mặt ›
                               </Text>
                             </ScalePressable>
-                          ) : canRemind ? (
-                            <ScalePressable
-                              accessibilityRole="button"
-                              onPress={() =>
-                                navigation.navigate('FriendlyReminder', {
-                                  groupId: group.id,
-                                  recipientMemberId: transfer.fromMemberId,
-                                  creditorName: transfer.toName,
-                                  amountVnd: transfer.amountVnd,
-                                })
-                              }
-                              scaleTo={0.96}
-                              style={styles.remindBtn}
-                            >
-                              <Text style={styles.remindBtnText}>
-                                Gửi nhắc nhẹ cho {transfer.fromName} ›
-                              </Text>
-                            </ScalePressable>
-                          ) : null}
+                          ) : (
+                            <>
+                              {canRemind ? (
+                                <ScalePressable
+                                  accessibilityRole="button"
+                                  onPress={() =>
+                                    navigation.navigate('FriendlyReminder', {
+                                      groupId: group.id,
+                                      recipientMemberId: transfer.fromMemberId,
+                                      creditorName: transfer.toName,
+                                      amountVnd: transfer.amountVnd,
+                                    })
+                                  }
+                                  scaleTo={0.96}
+                                  style={styles.remindBtn}
+                                >
+                                  <Text style={styles.remindBtnText} numberOfLines={1}>
+                                    {canCollect
+                                      ? 'Nhắc nhẹ ›'
+                                      : `Gửi nhắc nhẹ cho ${transfer.fromName} ›`}
+                                  </Text>
+                                </ScalePressable>
+                              ) : null}
+                              {canCollect ? (
+                                <CollectPaymentButton
+                                  groupId={groupId}
+                                  transfer={transfer}
+                                  refresh={() => loadGroup(true)}
+                                  style={styles.collectBtnFlex}
+                                />
+                              ) : null}
+                            </>
+                          )}
                         </View>
                       ) : null}
                     </View>
@@ -1127,6 +1156,62 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
 
               {activeTab === 'EXPENSES' ? (
                 <View style={styles.tabBody}>
+                  {group.expenses.length >= 2 ? (
+                    <View style={styles.expenseFilterWrap}>
+                      <ChiaNeInput
+                        value={query}
+                        onChangeText={setQuery}
+                        accessibilityLabel="Tìm khoản chi"
+                        placeholder="Tìm theo tên khoản chi hoặc người trả"
+                      />
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.expenseFilterChipsRow}
+                      >
+                        {Object.entries({
+                          ALL: 'Tất cả',
+                          FOOD: 'Ăn uống',
+                          STAY: 'Lưu trú',
+                          TRANSPORT: 'Di chuyển',
+                          COFFEE: 'Cà phê',
+                          OTHER: 'Khác',
+                        }).map(([key, label]) => (
+                          <ChiaNeChip
+                            key={key}
+                            label={label}
+                            active={category === key}
+                            onPress={() => setCategory(key)}
+                          />
+                        ))}
+                      </ScrollView>
+                      <View style={styles.expenseFilterSummaryRow}>
+                        <Text style={[styles.bucketTitle, tabularNums]}>
+                          {filteredExpenses.length} khoản ·{' '}
+                          {formatVnd(filteredExpenses.reduce((sum, exp) => sum + exp.amountVnd, 0))}
+                        </Text>
+                        {query.trim() !== '' || category !== 'ALL' ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => {
+                              setQuery('');
+                              setCategory('ALL');
+                            }}
+                            hitSlop={8}
+                          >
+                            <Text style={styles.clearFilterText}>Xóa bộ lọc</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                      {filteredExpenses.length === 0 ? (
+                        <View style={styles.emptyFilterCard}>
+                          <Text style={styles.emptyFilterText}>
+                            Chưa có khoản chi nào khớp bộ lọc.
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
                   {groupedExpenses.map((bucket, bucketIdx) => (
                     <View key={bucket.label} style={styles.bucketWrap}>
                       <View style={styles.bucketHeader}>
@@ -2157,6 +2242,10 @@ const styles = StyleSheet.create({
   },
   transferActionRow: {
     flexDirection: 'row',
+    gap: 8,
+  },
+  collectBtnFlex: {
+    flex: 1,
   },
   payNowBtn: {
     flex: 1,
@@ -2583,5 +2672,37 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: colors.forest,
     textAlign: 'center',
+  },
+  expenseFilterWrap: {
+    gap: 10,
+  },
+  expenseFilterChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  expenseFilterSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  clearFilterText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.purple,
+  },
+  emptyFilterCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 20,
+    alignItems: 'center',
+  },
+  emptyFilterText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.muted,
   },
 });

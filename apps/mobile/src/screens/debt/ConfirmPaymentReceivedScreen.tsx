@@ -15,7 +15,7 @@ import {
 import type { AppStackParamList } from '../../navigation/types';
 import { ApiClientError } from '../../services/apiClient';
 import { settlementsApi } from '../../services/settlementsApi';
-import { colors, fonts, radii } from '../../theme/tokens';
+import { colors, fonts, radii, tabularNums } from '../../theme/tokens';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'ConfirmPaymentReceived'>;
 
@@ -109,14 +109,14 @@ export function ConfirmPaymentReceivedScreen({ navigation, route }: Props) {
       backgroundColor={colors.paper}
       header={
         <AppHeader
-          title="Xác nhận đã nhận tiền"
+          title="Xác nhận thanh toán"
           onBack={() => navigation.goBack()}
         />
       }
       footer={
         settlement?.canConfirm ? (
           <ChiaNeButton
-            label="Tôi đã nhận đủ tiền"
+            label={settlement.canReject ? 'Tôi đã nhận đủ tiền' : `Xác nhận đã trả cho ${settlement.toName}`}
             variant="primary"
             loading={confirming}
             onPress={() => void handleConfirm()}
@@ -137,9 +137,9 @@ export function ConfirmPaymentReceivedScreen({ navigation, route }: Props) {
       ) : settlement ? (
         <View style={styles.content}>
           <Text style={styles.senderCaption}>
-            {`${settlement.fromName} báo đã chuyển cho bạn`}
+            {`${settlement.fromName} báo đã trả cho ${settlement.toName}`}
           </Text>
-          <Text style={styles.amount}>{formatVnd(settlement.amountVnd)}</Text>
+          <Text style={[styles.amount, tabularNums]}>{formatVnd(settlement.amountVnd)}</Text>
 
           <View style={styles.detailsCard}>
             <View style={styles.detailRow}>
@@ -181,9 +181,9 @@ export function ConfirmPaymentReceivedScreen({ navigation, route }: Props) {
           <View style={styles.peachWarning}>
             <IconShield width={25} height={25} />
             <View style={styles.warningTextCol}>
-              <Text style={styles.warningTitle}>Kiểm tra ngân hàng trước nhé</Text>
+              <Text style={styles.warningTitle}>Kiểm tra khoản thanh toán nhé</Text>
               <Text style={styles.warningBody}>
-                Chỉ xác nhận khi tiền đã vào tài khoản. ChiaNè không thể kiểm tra giao dịch ngân hàng thay bạn.
+                {`Chỉ xác nhận khi ${settlement.toName} đã nhận đủ ${formatVnd(settlement.amountVnd)}.`}
               </Text>
             </View>
           </View>
@@ -201,7 +201,7 @@ export function ConfirmPaymentReceivedScreen({ navigation, route }: Props) {
           ) : null}
 
           <Text style={styles.footerHint}>
-            {`Màn hình dành cho ${settlement.toName} · Người nhận`}
+            {`Người nhận · ${settlement.toName}`}
           </Text>
         </View>
       ) : null}

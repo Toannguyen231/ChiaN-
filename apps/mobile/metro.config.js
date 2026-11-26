@@ -40,7 +40,12 @@ config.server = {
 
     return (req, res, next) => {
       const url = req.url || '';
-      if (url.startsWith('/api/') || url === '/health' || url.startsWith('/health?')) {
+      if (
+        url.startsWith('/api/') ||
+        url.startsWith('/legal/') ||
+        url === '/health' ||
+        url.startsWith('/health?')
+      ) {
         const proxyReq = http.request(
           {
             hostname: '127.0.0.1',

@@ -1,6 +1,11 @@
+import { inferReceiptMimeType, uploadReceiptIfNeeded } from '../../services/receiptUploads';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Image,
+  Keyboard,
+  Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -35,7 +40,7 @@ import {
   StateView,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
-import { ApiClientError } from '../../services/apiClient';
+import { ApiClientError, receiptImageSource } from '../../services/apiClient';
 import { expensesApi } from '../../services/expensesApi';
 import { ocrApi } from '../../services/ocrApi';
 import { potApi } from '../../services/potApi';
@@ -116,12 +121,14 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [scanningReceipt, setScanningReceipt] = useState(false);
   const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [ocrFailed, setOcrFailed] = useState(false);
   const [receiptImageUri, setReceiptImageUri] = useState<string>(draft.receiptImageUrl || '');
   const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
   const [itemizedOverflowed, setItemizedOverflowed] = useState(false);
   const [luckyWheelOpen, setLuckyWheelOpen] = useState(false);
 
   const autoScanTriggeredRef = useRef(false);
+  const pickingImageRef = useRef(false);
 
   const initialize = useCallback(async () => {
     setLoadError(null);
@@ -176,21 +183,59 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [autoScanReceipt, loadError, loading]);
 
   const handlePickImage = async (fromCamera: boolean) => {
+    if (pickingImageRef.current || scanningReceipt) {
+      return;
+    }
+    pickingImageRef.current = true;
+    Keyboard.dismiss();
     setPhotoPickerOpen(false);
     setScanNotice(null);
+    setOcrFailed(false);
 
     try {
-      if (fromCamera) {
-        const permission = await ImagePicker.requestCameraPermissionsAsync();
-        if (!permission.granted) {
-          setScanNotice('Cần cấp quyền máy ảnh để chụp hóa đơn.');
-          return;
-        }
-      } else {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permission.granted) {
-          setScanNotice('Cần cấp quyền truy cập ảnh để tải hóa đơn.');
-          return;
+      if (Platform.OS !== 'web') {
+        if (fromCamera) {
+          let permission = await ImagePicker.getCameraPermissionsAsync();
+          if (!permission.granted) {
+            permission = await ImagePicker.requestCameraPermissionsAsync();
+          }
+          if (!permission.granted) {
+            setScanNotice(
+              'Chưa có quyền Máy ảnh. Hãy bật quyền trong Cài đặt hoặc chọn ảnh từ thư viện nhé.'
+            );
+            if (permission.canAskAgain === false) {
+              Alert.alert(
+                'Cần quyền Máy ảnh',
+                'Bật quyền Máy ảnh trong Cài đặt thiết bị để chụp hóa đơn nhé.',
+                [
+                  { text: 'Để sau', style: 'cancel' },
+                  { text: 'Mở Cài đặt', onPress: () => void Linking.openSettings() },
+                ]
+              );
+            }
+            return;
+          }
+        } else if (Platform.OS === 'android') {
+          let permission = await ImagePicker.getMediaLibraryPermissionsAsync();
+          if (!permission.granted) {
+            permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          }
+          if (!permission.granted) {
+            setScanNotice(
+              'Chưa có quyền Thư viện ảnh. Hãy bật quyền trong Cài đặt để chọn hóa đơn nhé.'
+            );
+            if (permission.canAskAgain === false) {
+              Alert.alert(
+                'Cần quyền Thư viện ảnh',
+                'Bật quyền truy cập Ảnh trong Cài đặt thiết bị để chọn hóa đơn nhé.',
+                [
+                  { text: 'Để sau', style: 'cancel' },
+                  { text: 'Mở Cài đặt', onPress: () => void Linking.openSettings() },
+                ]
+              );
+            }
+            return;
+          }
         }
       }
 
@@ -198,38 +243,42 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         ? ImagePicker.launchCameraAsync
         : ImagePicker.launchImageLibraryAsync;
 
-      const result = await pickerFn({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 0.65,
-        base64: true,
-      });
+      let result: ImagePicker.ImagePickerResult;
+      try {
+        result = await pickerFn({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.65,
+          base64: true,
+        });
+      } catch {
+        setScanNotice(
+          fromCamera
+            ? 'Không mở được máy ảnh trên thiết bị này — bạn hãy bấm "Chọn ảnh từ máy" nhé.'
+            : 'Không mở được thư viện ảnh. Bạn thử lại nhé.'
+        );
+        return;
+      }
 
       if (result.canceled || !result.assets?.[0]) {
         return;
       }
 
       const asset = result.assets[0];
-      const mimeType = asset.mimeType || 'image/jpeg';
       const imageUri = asset.uri;
-      const base64Data = asset.base64;
+      const cleanBase64 = asset.base64?.replace(/\s+/g, '') ?? '';
 
-      setReceiptImageUri(imageUri);
-      if (base64Data) {
-        draft.patchDraft({ receiptImageUrl: `data:${mimeType};base64,${base64Data}` });
-      } else {
-        draft.patchDraft({ receiptImageUrl: imageUri });
-      }
-
-      if (!base64Data) {
-        setScanNotice('Đã đính kèm ảnh. Không thể đọc base64 để phân tích AI.');
+      if (!cleanBase64) {
+        setScanNotice('Chưa đọc được dữ liệu ảnh. Bạn thử chọn lại ảnh khác nhé.');
         return;
       }
-
+      const mimeType = inferReceiptMimeType(cleanBase64, asset.mimeType);
+      setReceiptImageUri(imageUri);
+      draft.patchDraft({ receiptImageUrl: `data:${mimeType};base64,${cleanBase64}`, scannedItems: [] });
       setScanningReceipt(true);
       try {
         const scan = await ocrApi.scanReceipt({
-          imageBase64: base64Data,
+          imageBase64: cleanBase64,
           mimeType,
         });
 
@@ -247,6 +296,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           ...(normalizedItems.length > 0 ? { scannedItems: normalizedItems } : {}),
         });
         setItemizedOverflowed(false);
+        setOcrFailed(false);
 
         if (scan.notice) {
           setScanNotice(scan.notice);
@@ -254,6 +304,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           showToast('Đã quét xong hóa đơn!');
         }
       } catch (ocrErr) {
+        setOcrFailed(true);
         setScanNotice(
           ocrErr instanceof ApiClientError
             ? ocrErr.message
@@ -264,6 +315,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       }
     } catch {
       setScanNotice('Lỗi khi mở máy ảnh hoặc thư viện ảnh.');
+    } finally {
+      pickingImageRef.current = false;
     }
   };
 
@@ -509,9 +562,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         await expensesApi.updateExpense(expenseId, {
           ...basePayload,
           note: draft.note.trim() ? draft.note.trim() : null,
-          receiptImageUrl: draft.receiptImageUrl.trim()
-            ? draft.receiptImageUrl.trim()
-            : null,
+          receiptImageUrl: await uploadReceiptIfNeeded(draft.receiptImageUrl.trim()) || null,
         });
         await fetchGroupDetail(groupId);
         draft.clearDraft();
@@ -522,6 +573,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           .toString(36)
           .slice(2, 10)}`;
         try {
+          const receiptUrl = await uploadReceiptIfNeeded(basePayload.receiptImageUrl);
+          if (receiptUrl) {
+            basePayload.receiptImageUrl = receiptUrl;
+            draft.patchDraft({ receiptImageUrl: receiptUrl });
+          }
           await expensesApi.createExpense(groupId, {
             ...basePayload,
             clientMutationId,
@@ -580,7 +636,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             label={isEdit ? 'Lưu thay đổi' : 'Lưu khoản chi'}
             variant="primary"
             loading={submitting}
-            disabled={draft.amountVnd <= 0 || !draft.title.trim()}
+            disabled={scanningReceipt || draft.amountVnd <= 0 || !draft.title.trim()}
             onPress={() => void handleSave()}
           />
         ) : undefined
@@ -607,7 +663,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             </View>
             <ScalePressable
               accessibilityRole="button"
-              onPress={() => setPhotoPickerOpen(true)}
+              onPress={() => {
+                Keyboard.dismiss();
+                setPhotoPickerOpen((prev) => !prev);
+              }}
               disabled={scanningReceipt}
               scaleTo={0.95}
               style={styles.ocrCompactPill}
@@ -621,6 +680,44 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               </Text>
             </ScalePressable>
           </View>
+
+          {photoPickerOpen && !scanningReceipt ? (
+            <View style={styles.inlinePickerCard}>
+              <View style={styles.inlinePickerHeader}>
+                <View style={styles.inlinePickerTitleCol}>
+                  <Text style={styles.inlinePickerTitle}>✨ Quét hóa đơn AI</Text>
+                  <Text style={styles.inlinePickerSub}>
+                    Chụp ảnh mới hoặc chọn ảnh có sẵn, AI sẽ tự đọc số tiền và tách món.
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={() => setPhotoPickerOpen(false)}
+                >
+                  <Text style={styles.inlinePickerClose}>Đóng</Text>
+                </Pressable>
+              </View>
+              <View style={styles.inlinePickerBtnRow}>
+                <ScalePressable
+                  accessibilityRole="button"
+                  onPress={() => void handlePickImage(true)}
+                  scaleTo={0.96}
+                  style={styles.inlineCameraBtn}
+                >
+                  <Text style={styles.inlineCameraBtnText}>📷 Chụp ảnh mới</Text>
+                </ScalePressable>
+                <ScalePressable
+                  accessibilityRole="button"
+                  onPress={() => void handlePickImage(false)}
+                  scaleTo={0.96}
+                  style={styles.inlineGalleryBtn}
+                >
+                  <Text style={styles.inlineGalleryBtnText}>🖼️ Chọn ảnh từ máy</Text>
+                </ScalePressable>
+              </View>
+            </View>
+          ) : null}
 
           {/* 2) Hero Amount Input */}
           <View style={styles.amountCard}>
@@ -700,10 +797,31 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                 </View>
               ) : null}
 
+              {__DEV__ && ocrFailed && !scanningReceipt ? (
+                <ChiaNeButton
+                  variant="quiet"
+                  label="🧪 Điền thử hóa đơn mẫu (DEV)"
+                  onPress={() => {
+                    draft.patchDraft({
+                      title: draft.title.trim() || 'Hóa đơn ăn uống mẫu',
+                      amountVnd: 550000,
+                      category: 'FOOD',
+                      scannedItems: [
+                        { name: 'Lẩu gà lá é', priceVnd: 380000, quantity: 1, assignedMemberIds: [] },
+                        { name: 'Bia Sài Gòn (4 lon)', priceVnd: 120000, quantity: 4, assignedMemberIds: [] },
+                        { name: 'Bánh tráng & khăn lạnh', priceVnd: 50000, quantity: 1, assignedMemberIds: [] },
+                      ],
+                    });
+                    setOcrFailed(false);
+                    setScanNotice('🧪 Đang dùng dữ liệu hóa đơn mẫu (DEV).');
+                  }}
+                />
+              ) : null}
+
               {receiptImageUri ? (
                 <View style={styles.receiptPreviewRow}>
                   <Image
-                    source={{ uri: receiptImageUri }}
+                    source={{ uri: receiptImageSource(receiptImageUri) }}
                     style={styles.receiptPreviewThumb}
                     resizeMode="cover"
                   />
@@ -713,6 +831,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       onPress={() => {
                         setReceiptImageUri('');
                         setItemizedOverflowed(false);
+                        setOcrFailed(false);
+                        setScanNotice(null);
                         draft.patchDraft({
                           receiptImageUrl: '',
                           scannedItems: [],
@@ -1134,34 +1254,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           autoCapitalize="none"
           maxLength={500}
         />
-      </BottomSheetModal>
-
-      {/* Photo Picker BottomSheet */}
-      <BottomSheetModal
-        visible={photoPickerOpen}
-        onClose={() => setPhotoPickerOpen(false)}
-        title="Quét hóa đơn AI"
-        subtitle="Chụp ảnh hóa đơn hoặc chọn ảnh từ máy, AI sẽ tự đọc tổng tiền và gợi ý các món."
-        footer={
-          <ChiaNeButton
-            label="Hủy"
-            variant="quiet"
-            onPress={() => setPhotoPickerOpen(false)}
-          />
-        }
-      >
-        <View style={styles.photoPickerOptions}>
-          <ChiaNeButton
-            label="📷 Chụp ảnh mới"
-            variant="primary"
-            onPress={() => void handlePickImage(true)}
-          />
-          <ChiaNeButton
-            label="🖼️ Chọn ảnh từ máy"
-            variant="secondary"
-            onPress={() => void handlePickImage(false)}
-          />
-        </View>
       </BottomSheetModal>
 
       {/* Item Assignee BottomSheet */}
@@ -1731,8 +1823,75 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
-  photoPickerOptions: {
+  inlinePickerCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.card,
+    borderWidth: 1.5,
+    borderColor: colors.forest,
+    padding: 14,
+    gap: 12,
+  },
+  inlinePickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 10,
+  },
+  inlinePickerTitleCol: {
+    flex: 1,
+    gap: 2,
+  },
+  inlinePickerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: colors.forest,
+  },
+  inlinePickerSub: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.muted,
+  },
+  inlinePickerClose: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.muted,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  inlinePickerBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  inlineCameraBtn: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    backgroundColor: colors.forest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  inlineCameraBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.lime,
+  },
+  inlineGalleryBtn: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    backgroundColor: colors.lavender,
+    borderWidth: 1,
+    borderColor: 'rgba(110, 85, 165, 0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  inlineGalleryBtnText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: colors.purple,
   },
   modalActions: {
     gap: 10,

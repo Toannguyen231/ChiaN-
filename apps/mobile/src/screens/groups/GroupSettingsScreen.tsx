@@ -11,6 +11,7 @@ import {
   ConfirmDialog,
   InfoCard,
   ScreenContainer,
+  showToast,
   StateView,
 } from '../../components';
 import type { AppStackParamList } from '../../navigation/types';
@@ -44,6 +45,7 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -117,6 +119,29 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
         err instanceof ApiClientError ? err.message : 'Không thể cập nhật lưu trữ.'
       );
     } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!group || actionLoading) return;
+    setActionLoading(true);
+    setErrorText(null);
+    try {
+      await groupsApi.deleteGroup(group.id);
+      useGroupsStore.setState(state => {
+        const groupDetailsById = { ...state.groupDetailsById };
+        delete groupDetailsById[group.id];
+        return { groupDetailsById, dashboard: null,
+          activeGroups: state.activeGroups.filter(g => g.id !== group.id),
+          archivedGroups: state.archivedGroups.filter(g => g.id !== group.id) };
+      });
+      showToast('Đã xóa nhóm vĩnh viễn.');
+      navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'GroupsTab' } }] });
+    } catch (err) {
+      setErrorText(err instanceof ApiClientError ? err.message : 'Không thể xóa nhóm lúc này.');
+    } finally {
+      setDeleteConfirm(false);
       setActionLoading(false);
     }
   };
@@ -223,11 +248,19 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
                 <View style={styles.divider} />
                 <Pressable
                   onPress={() => setArchiveConfirm(true)}
-                  style={styles.actionRow}
+                  style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
                 >
                   <Text style={styles.actionRowText}>
                     {group.isArchived ? 'Khôi phục nhóm' : 'Lưu trữ nhóm'}
                   </Text>
+                </Pressable>
+                <View style={styles.divider} />
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setDeleteConfirm(true)}
+                  style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
+                >
+                  <Text style={styles.dangerActionText}>Xóa nhóm vĩnh viễn</Text>
                 </Pressable>
               </>
             ) : null}
@@ -242,6 +275,11 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
           ) : null}
         </View>
       )}
+
+      <ConfirmDialog visible={deleteConfirm} title={`Xóa nhóm ${group?.name ?? ''}?`}
+        description="Tất cả khoản chi, thanh toán và lịch sử của nhóm sẽ bị xóa vĩnh viễn. Bạn không thể khôi phục nhóm sau bước này."
+        confirmLabel="Xóa nhóm vĩnh viễn" destructive loading={actionLoading}
+        onConfirm={() => void handleDeleteGroup()} onCancel={() => setDeleteConfirm(false)} />
 
       <ConfirmDialog
         visible={archiveConfirm}
@@ -315,6 +353,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 14,
     color: colors.ink,
+  },
+  dangerActionText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 14,
+    color: colors.coral,
+  },
+  pressed: {
+    opacity: 0.75,
   },
   divider: {
     height: 1,

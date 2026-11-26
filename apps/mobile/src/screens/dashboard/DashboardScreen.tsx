@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -218,10 +219,16 @@ export function DashboardScreen() {
   const handlePickGroup = (group: GroupSummaryDto) => {
     const mode = pickerMode;
     setPickerMode(null);
-    navigation.navigate('AddExpense', {
-      groupId: group.id,
-      ...(mode === 'SCAN_AI' ? { autoScanReceipt: true } : {}),
-    });
+    const go = () =>
+      navigation.navigate('AddExpense', {
+        groupId: group.id,
+        ...(mode === 'SCAN_AI' ? { autoScanReceipt: true } : {}),
+      });
+    if (Platform.OS === 'ios') {
+      setTimeout(go, 220);
+    } else {
+      go();
+    }
   };
 
   const handleTapHeroReceivable = () => {
@@ -820,7 +827,12 @@ export function DashboardScreen() {
         onClose={() => setInviteModalVisible(false)}
         onSubmitCode={(inviteCode) => {
           setInviteModalVisible(false);
-          navigation.navigate('GuestJoin', { inviteCode });
+          const go = () => navigation.navigate('GuestJoin', { inviteCode });
+          if (Platform.OS === 'ios') {
+            setTimeout(go, 220);
+          } else {
+            go();
+          }
         }}
       />
     </ScreenContainer>

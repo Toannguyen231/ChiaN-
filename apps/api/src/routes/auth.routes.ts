@@ -11,6 +11,7 @@ import {
   verifyOtpSchema,
 } from '@chiane/shared';
 import type { OtpService } from '../services/otp.service';
+import { computeGroupFinancials } from '../services/balance.service';
 import { serializeUserProfile, type TokenService } from '../services/token.service';
 import { AppError } from '../utils/errors';
 
@@ -200,5 +201,106 @@ export async function registerAuthRoutes(
       registered: Boolean(updated.expoPushToken),
       expoPushToken: updated.expoPushToken ?? null,
     });
+  });
+
+  app.delete('/api/v1/auth/me', { preHandler: requireAuth }, async (request, reply) => {
+    const userId = request.authUser!.userId;
+
+    await prisma.$transaction(
+      async (tx) => {
+        const user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user) {
+          throw new AppError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản.');
+        }
+
+        const activeMemberships = await tx.groupMember.findMany({
+          where: { userId, status: 'ACTIVE' },
+          include: {
+            group: {
+              select: { id: true, name: true, isArchived: true },
+            },
+          },
+        });
+
+        for (const membership of activeMemberships) {
+          if (membership.group.isArchived) {
+            continue;
+          }
+
+          const financials = await computeGroupFinancials(tx, membership.groupId);
+          const netBalanceVnd = financials.balancesMap.get(membership.id) ?? 0;
+          const pendingSettlements = await tx.settlement.count({
+            where: {
+              groupId: membership.groupId,
+              status: 'REPORTED',
+              OR: [{ fromMemberId: membership.id }, { toMemberId: membership.id }],
+            },
+          });
+
+          if (netBalanceVnd !== 0 || pendingSettlements > 0) {
+            throw new AppError(
+              400,
+              'UNSETTLED_ACCOUNT_CANNOT_DELETE',
+              `Bạn còn số dư hoặc thanh toán chờ xác nhận trong nhóm "${membership.group.name}". Hãy tất toán hoặc lưu trữ nhóm trước khi xóa tài khoản nhé.`,
+              {
+                groupId: membership.groupId,
+                groupName: membership.group.name,
+                netBalanceVnd,
+              }
+            );
+          }
+        }
+
+        for (const membership of activeMemberships) {
+          const others = await tx.groupMember.findMany({
+            where: {
+              groupId: membership.groupId,
+              status: 'ACTIVE',
+              id: { not: membership.id },
+            },
+            orderBy: { joinedAt: 'asc' },
+          });
+
+          if (others.length === 0) {
+            await tx.group.update({
+              where: { id: membership.groupId },
+              data: { isArchived: true },
+            });
+          } else if (
+            membership.role === 'ADMIN' &&
+            !others.some((other) => other.role === 'ADMIN')
+          ) {
+            const nextAdmin = others.find((other) => other.role === 'MEMBER') ?? others[0]!;
+            await tx.groupMember.update({
+              where: { id: nextAdmin.id },
+              data: { role: 'ADMIN' },
+            });
+          }
+        }
+
+        await tx.groupMember.updateMany({
+          where: { userId },
+          data: {
+            userId: null,
+            guestTokenHash: null,
+            displayName: 'Tài khoản đã xóa',
+            status: 'LEFT',
+            role: 'MEMBER',
+          },
+        });
+
+        await tx.group.updateMany({
+          where: { createdByUserId: userId },
+          data: { createdByUserId: null },
+        });
+
+        await tx.otpChallenge.deleteMany({ where: { phone: user.phone } });
+        await tx.refreshToken.deleteMany({ where: { userId } });
+        await tx.user.delete({ where: { id: userId } });
+      },
+      { isolationLevel: 'Serializable' }
+    );
+
+    return reply.status(200).send({ success: true });
   });
 }

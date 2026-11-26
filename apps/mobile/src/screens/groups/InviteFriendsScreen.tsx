@@ -8,6 +8,7 @@ import IconCopy from '../../../assets/figma/icon-copy.svg';
 import IconLink from '../../../assets/figma/icon-link.svg';
 import {
   AppHeader,
+  VietQrMatrix,
   ChiaNeButton,
   ChiaNeChip,
   GROUP_CATEGORY_META,
@@ -79,7 +80,7 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
   };
 
   const loadGroup = useCallback(async () => {
-    if (!cachedGroup) setLoading(true);
+    if (!useGroupsStore.getState().groupDetailsById[groupId]) setLoading(true);
     setErrorText(null);
     try {
       const detail = await fetchGroupDetail(groupId);
@@ -96,7 +97,7 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [cachedGroup, fetchGroupDetail, groupId, toneOverridden]);
+  }, [fetchGroupDetail, groupId, toneOverridden]);
 
   useFocusEffect(
     useCallback(() => {
@@ -186,6 +187,18 @@ export function InviteFriendsScreen({ navigation, route }: Props) {
             <CategoryIcon width={35} height={35} />
             <Text style={styles.heroTitle}>{group.name}</Text>
             <Text style={styles.heroSubtitle}>Đủ hội, chuyến đi mới vui.</Text>
+          </View>
+
+          <View style={styles.qrCard}>
+            <Text style={styles.qrCardTitle}>Quét mã QR để vào nhóm</Text>
+            <View style={styles.qrFrame}>
+              <VietQrMatrix payload={group.inviteLink} size={196} />
+            </View>
+            <View style={styles.inviteCodeBadge}>
+              <Text selectable style={styles.inviteCodeText}>
+                Mã mời: {group.inviteCode}
+              </Text>
+            </View>
           </View>
 
           <Text style={styles.sectionTitle}>Một liên kết, cả hội cùng vào.</Text>
@@ -312,6 +325,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     color: colors.purple,
+  },
+  qrCard: {
+    alignItems: 'center',
+    gap: 10,
+    padding: 18,
+    borderRadius: radii.card,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  qrCardTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.ink,
+  },
+  qrFrame: {
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  inviteCodeBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.chip,
+    backgroundColor: colors.paper,
+  },
+  inviteCodeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: colors.forest,
   },
   sectionTitle: {
     fontFamily: fonts.semiBold,

@@ -1,3 +1,4 @@
+import { AppError } from '../utils/errors';
 import type { ExpenseCategory, ReceiptItemDto, ReceiptScanResultDto } from '@chiane/shared';
 
 export interface ScanReceiptParams {
@@ -140,19 +141,5 @@ Yêu cầu bắt buộc:
     }
   }
 
-  // 2. Fallback / Offline / Dev simulator parser
-  // Allows testing the feature immediately without needing a live external API key
-  return {
-    totalVnd: 550000,
-    detectedMerchant: 'Hóa đơn ăn uống mẫu',
-    detectedCategory: 'FOOD',
-    date: new Date().toISOString().slice(0, 10),
-    items: [
-      { name: 'Lẩu gà lá é', priceVnd: 380000, quantity: 1 },
-      { name: 'Bia Sài Gòn (4 lon)', priceVnd: 120000, quantity: 4 },
-      { name: 'Bánh tráng & khăn lạnh', priceVnd: 50000, quantity: 1 },
-    ],
-    notice:
-      'Gợi ý: Thêm GEMINI_API_KEY vào apps/api/.env để AI Google Gemini phân tích trực tiếp mọi hóa đơn thật!',
-  };
+  throw new AppError(503, 'OCR_UNAVAILABLE', 'Quét AI tạm thời chưa khả dụng. Bạn nhập nhanh số tiền trên hóa đơn nhé.');
 }

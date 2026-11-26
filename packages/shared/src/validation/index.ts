@@ -211,6 +211,7 @@ export const updateExpenseSchema = z
   });
 
 export const reportSettlementSchema = z.object({
+  autoConfirm: z.boolean().default(false),
   fromMemberId: z.string().trim().min(1),
   toMemberId: z.string().trim().min(1),
   amountVnd: z.number().int().positive('Số tiền thanh toán phải lớn hơn 0'),
@@ -229,13 +230,15 @@ export const sendReminderSchema = z.object({
   message: z.string().trim().min(1).max(300),
 });
 
-export const joinGuestSchema = z.object({
+export const joinInviteSchema = z.object({ claimMemberId: z.string().trim().min(1).optional() });
+
+export const joinGuestSchema = joinInviteSchema.extend({
   displayName: z
     .string()
     .trim()
     .min(1, 'Vui lòng nhập tên hiển thị của bạn')
-    .max(60, 'Tên hiển thị tối đa 60 ký tự'),
-});
+    .max(60, 'Tên hiển thị tối đa 60 ký tự').optional(),
+}).refine(input => input.displayName || input.claimMemberId, { message: 'Vui lòng nhập tên của bạn.' });
 
 export const claimGuestSchema = z.object({
   guestToken: z.string().trim().min(16, 'Guest token không hợp lệ'),

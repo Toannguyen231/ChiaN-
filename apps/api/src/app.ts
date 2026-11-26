@@ -1,3 +1,4 @@
+import { registerReceiptUploads } from './routes/uploads.routes';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -15,6 +16,7 @@ import { registerExportRoutes } from './routes/export.routes';
 import { registerGroupsRoutes } from './routes/groups.routes';
 import { registerHealthRoutes } from './routes/health.routes';
 import { registerInvitesRoutes } from './routes/invites.routes';
+import { registerLegalRoutes } from './routes/legal.routes';
 import { registerOcrRoutes } from './routes/ocr.routes';
 import { registerPotRoutes } from './routes/pot.routes';
 import { registerSettlementsRoutes } from './routes/settlements.routes';
@@ -102,6 +104,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const requireAuthOrGuest = createRequireAuthOrGuest(prisma, tokenService);
 
   await registerHealthRoutes(app);
+  await registerLegalRoutes(app);
   await registerAuthRoutes(app, {
     prisma,
     otpService,
@@ -138,6 +141,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     prisma,
     requireAuthOrGuest,
   });
+  registerReceiptUploads(app, requireAuthOrGuest);
   await registerOcrRoutes(app, {
     requireAuthOrGuest,
     geminiApiKey: config.GEMINI_API_KEY,

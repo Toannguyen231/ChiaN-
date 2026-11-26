@@ -99,6 +99,7 @@ export interface GroupSummaryDto {
 }
 
 export interface GroupMemberDto {
+  isPlaceholder?: boolean;
   id: string;
   userId: string | null;
   displayName: string;
@@ -227,6 +228,7 @@ export interface DashboardDto {
 }
 
 export interface MemberBalanceDto {
+  isPlaceholder?: boolean;
   memberId: string;
   displayName: string;
   role: GroupMemberRole;
@@ -236,6 +238,7 @@ export interface MemberBalanceDto {
 }
 
 export interface SuggestedTransferDto {
+  fromIsPlaceholder?: boolean;
   fromMemberId: string;
   fromName: string;
   toMemberId: string;
@@ -293,6 +296,7 @@ export interface ReminderDto {
 }
 
 export interface InvitePreviewDto {
+  claimableMembers: Array<{ id: string; displayName: string }>;
   groupId: string;
   name: string;
   category: GroupCategory;

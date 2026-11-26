@@ -48,6 +48,15 @@ let activeBaseUrl = CANDIDATE_BASE_URLS[0];
 
 export const API_BASE_URL = activeBaseUrl;
 
+export function getPublicWebUrl(path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${activeBaseUrl}${cleanPath}`;
+}
+
+export function receiptImageSource(url: string) {
+  return url.startsWith('/api/v1/uploads/') ? `${activeBaseUrl}${url}` : url;
+}
+
 async function fetchFromApi(path: string, init: RequestInit): Promise<Response> {
   const orderedUrls = [
     activeBaseUrl,

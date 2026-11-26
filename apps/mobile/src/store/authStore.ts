@@ -38,6 +38,7 @@ interface AuthState {
   exitGuestSession: () => Promise<void>;
   startGuestUpgrade: () => void;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => {
@@ -205,6 +206,22 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch {
         // Always clear local session even if server unreachable
       }
+      await Promise.all([
+        tokenStorage.clearTokens(),
+        tokenStorage.clearGuestSession(),
+      ]);
+      set({
+        status: 'unauthenticated',
+        user: null,
+        guestSession: null,
+        pendingClaimGuestToken: null,
+        pendingPhone: null,
+        devOtpHint: null,
+      });
+    },
+
+    async deleteAccount() {
+      await authApi.deleteAccount();
       await Promise.all([
         tokenStorage.clearTokens(),
         tokenStorage.clearGuestSession(),

@@ -6,6 +6,7 @@ import IconShieldPurple from '../../../assets/figma/icon-shield-purple.svg';
 import {
   AppHeader,
   ChiaNeButton,
+  ChiaNeChip,
   ChiaNeInput,
   GROUP_CATEGORY_META,
   ScreenContainer,
@@ -31,6 +32,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
   const isAuthenticatedUser =
     authStatus === 'authenticated' || authStatus === 'needs_profile';
 
+  const [claimMemberId, setClaimMemberId] = useState<string>();
   const [preview, setPreview] = useState<InvitePreviewDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -43,6 +45,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
     setLoadError(null);
     try {
       const data = await invitesApi.getInvitePreview(inviteCode);
+      setClaimMemberId(undefined);
       setPreview(data);
     } catch (err) {
       setLoadError(
@@ -65,22 +68,23 @@ export function GuestJoinScreen({ navigation, route }: Props) {
     setJoining(true);
     try {
       if (isAuthenticatedUser) {
-        const res = await groupsApi.joinByInviteCode(preview.inviteCode);
+        const res = await groupsApi.joinByInviteCode(preview.inviteCode, claimMemberId);
         (navigation as NativeStackScreenProps<AppStackParamList, 'GuestJoin'>['navigation']).replace(
           'GroupDetails',
           { groupId: res.groupId }
         );
       } else {
         const cleanName = displayName.trim();
-        if (!cleanName) {
+        if (!cleanName && !claimMemberId) {
           setSubmitError('Vui lòng nhập tên hiển thị của bạn.');
           setJoining(false);
           return;
         }
-        const session = await invitesApi.joinAsGuest(preview.inviteCode, cleanName);
+        const session = await invitesApi.joinAsGuest(preview.inviteCode, cleanName || undefined, claimMemberId);
         await enterGuestSession(session);
       }
     } catch (err) {
+      if (err instanceof ApiClientError && err.code === 'MEMBER_ALREADY_CLAIMED') await loadPreview();
       setSubmitError(
         err instanceof ApiClientError
           ? err.message
@@ -111,7 +115,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
             label={isAuthenticatedUser ? 'Tham gia nhóm ngay' : 'Tham gia nhóm'}
             variant="primary"
             loading={joining}
-            disabled={!isAuthenticatedUser && !displayName.trim()}
+            disabled={!isAuthenticatedUser && !claimMemberId && !displayName.trim()}
             onPress={() => void handleJoin()}
           />
         ) : undefined
@@ -137,6 +141,18 @@ export function GuestJoinScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
+          {!preview.isArchived && Boolean(preview.claimableMembers?.length) && (
+            <View style={styles.accountConfirmCard}>
+              <Text style={styles.accountConfirmTitle}>Bạn đã có tên trong nhóm này chưa?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {preview.claimableMembers.map(member => (
+                  <ChiaNeChip key={member.id} label={member.displayName} active={claimMemberId === member.id}
+                    onPress={() => setClaimMemberId(member.id)} />
+                ))}
+                <ChiaNeChip label="Tạo thành viên mới" active={!claimMemberId} onPress={() => setClaimMemberId(undefined)} />
+              </View>
+            </View>
+          )}
           {preview.isArchived ? (
             <StateView
               kind="empty"

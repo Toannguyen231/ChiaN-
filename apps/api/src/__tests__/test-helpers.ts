@@ -59,18 +59,19 @@ export function createTestDb(suiteName: string): {
       if (fs.existsSync(templateFile)) {
         fs.unlinkSync(templateFile);
       }
-      const prismaCli = path.resolve(__dirname, '../../node_modules/.bin/prisma.cmd');
-      const resolvedCli = fs.existsSync(prismaCli) ? prismaCli : 'npx';
-      const args = fs.existsSync(prismaCli)
-        ? ['db', 'push', '--skip-generate']
-        : ['prisma', 'db', 'push', '--skip-generate'];
-
-      execFileSync(resolvedCli, args, {
-        cwd: path.resolve(__dirname, '../..'),
-        env: { ...process.env, DATABASE_URL: templateUrl },
-        stdio: 'pipe',
-        shell: true,
-      });
+      // SQLite's schema engine on Windows expects an existing database file.
+      fs.closeSync(fs.openSync(templateFile, 'wx'));
+      const prismaCli = path.join(path.dirname(require.resolve('prisma/package.json')), 'build', 'index.js');
+      try {
+        execFileSync(process.execPath, [prismaCli, 'db', 'push', '--skip-generate'], {
+          cwd: path.resolve(__dirname, '../..'),
+          env: { ...process.env, DATABASE_URL: templateUrl },
+          stdio: 'pipe',
+        });
+      } catch (error) {
+        fs.unlinkSync(templateFile);
+        throw error;
+      }
     }
 
     fs.copyFileSync(templateFile, dbFile);

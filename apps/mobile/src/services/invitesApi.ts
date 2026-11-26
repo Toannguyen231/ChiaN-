@@ -22,12 +22,12 @@ export const invitesApi = {
     );
   },
 
-  joinAsGuest(inviteCode: string, displayName: string): Promise<GuestSessionDto> {
+  joinAsGuest(inviteCode: string, displayName?: string, claimMemberId?: string): Promise<GuestSessionDto> {
     return apiRequest<GuestSessionDto>(
       `/api/v1/invites/${encodeURIComponent(inviteCode)}/join-guest`,
       {
         method: 'POST',
-        body: { displayName },
+        body: { displayName, claimMemberId },
         authenticated: false,
       }
     );

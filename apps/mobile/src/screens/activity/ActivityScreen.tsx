@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -148,7 +149,12 @@ export function ActivityScreen() {
 
   const handlePickGroup = (group: GroupSummaryDto) => {
     setPickerVisible(false);
-    navigation.navigate('AddExpense', { groupId: group.id });
+    const go = () => navigation.navigate('AddExpense', { groupId: group.id });
+    if (Platform.OS === 'ios') {
+      setTimeout(go, 220);
+    } else {
+      go();
+    }
   };
 
   const handleTapActivity = async (item: ActivityItemDto) => {

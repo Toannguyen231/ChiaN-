@@ -57,6 +57,10 @@ export const groupsApi = {
     });
   },
 
+  deleteGroup(groupId: string): Promise<{ success: boolean }> {
+    return apiRequest(`/api/v1/groups/${groupId}`, { method: 'DELETE', authenticated: true });
+  },
+
   archiveGroup(groupId: string, archived: boolean): Promise<{ group: GroupDetailDto }> {
     return apiRequest<{ group: GroupDetailDto }>(`/api/v1/groups/${groupId}/archive`, {
       method: 'POST',
@@ -113,14 +117,14 @@ export const groupsApi = {
     );
   },
 
-  joinByInviteCode(inviteCode: string): Promise<{
+  joinByInviteCode(inviteCode: string, claimMemberId?: string): Promise<{
     groupId: string;
     memberId: string;
     alreadyMember: boolean;
   }> {
     return apiRequest(`/api/v1/invites/${encodeURIComponent(inviteCode)}/join`, {
       method: 'POST',
-      body: {},
+      body: { claimMemberId },
       authenticated: true,
     });
   },

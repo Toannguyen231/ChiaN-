@@ -44,12 +44,30 @@ export function BottomSheetModal({
 }: BottomSheetModalProps) {
   const insets = useSafeAreaInsets();
   const [rendered, setRendered] = useState(visible);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(320)).current;
 
   useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+
     if (visible) {
       setRendered(true);
+      backdropOpacity.setValue(0);
+      translateY.setValue(320);
       Animated.parallel([
         Animated.timing(backdropOpacity, {
           toValue: 1,
@@ -64,35 +82,41 @@ export function BottomSheetModal({
           useNativeDriver: true,
         }),
       ]).start();
-    } else if (rendered) {
+    } else {
       Animated.parallel([
         Animated.timing(backdropOpacity, {
           toValue: 0,
-          duration: 160,
+          duration: 150,
           easing: Easing.in(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(translateY, {
           toValue: 320,
-          duration: 170,
+          duration: 160,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
       ]).start(({ finished }) => {
-        if (finished) {
+        if (finished && !visibleRef.current) {
           setRendered(false);
         }
       });
+      closeTimerRef.current = setTimeout(() => {
+        if (!visibleRef.current) {
+          setRendered(false);
+        }
+      }, 200);
     }
-  }, [backdropOpacity, rendered, translateY, visible]);
+  }, [backdropOpacity, translateY, visible]);
 
-  if (!rendered) {
+  const isMounted = visible || rendered;
+  if (!isMounted) {
     return null;
   }
 
   return (
     <Modal
-      visible={rendered}
+      visible={isMounted}
       transparent
       animationType="none"
       statusBarTranslucent
@@ -100,11 +124,12 @@ export function BottomSheetModal({
     >
       <KeyboardAvoidingView
         style={styles.root}
+        pointerEvents={visible ? 'auto' : 'none'}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
           <Pressable
-            style={StyleSheet.absoluteFill}
+            style={styles.backdropPress}
             onPress={dismissable ? onClose : undefined}
           />
         </Animated.View>
@@ -161,6 +186,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(23, 62, 50, 0.45)',
+  },
+  backdropPress: {
+    flex: 1,
   },
   sheet: {
     width: '100%',

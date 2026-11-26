@@ -1,38 +1,16 @@
-import { execFileSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app';
-import type { AppConfig } from '../config/env';
-import type { OtpDeliveryProvider } from '../services/otp.service';
+import {
+  CaptureOtpProvider,
+  createAuthedUser,
+  createTestDb,
+  resetDb,
+} from './test-helpers';
 
-const TEST_DB_FILE = path.resolve(__dirname, '../../prisma/test.db');
-const TEST_DATABASE_URL = `file:${TEST_DB_FILE.replace(/\\/g, '/')}`;
-
-const baseConfig: AppConfig = {
-  PORT: 0,
-  HOST: '127.0.0.1',
-  NODE_ENV: 'test',
-  DATABASE_URL: TEST_DATABASE_URL,
-  JWT_ACCESS_SECRET: 'chiane-test-jwt-secret-must-be-at-least-32-chars',
-  JWT_ACCESS_TTL: '15m',
-  REFRESH_TOKEN_TTL_DAYS: 30,
-  OTP_PROVIDER: 'console',
-  OTP_TTL_SECONDS: 300,
-  OTP_RESEND_COOLDOWN_SECONDS: 30,
-  OTP_MAX_ATTEMPTS: 3,
-  OTP_DEV_ECHO: true,
-};
-
-class CaptureOtpProvider implements OtpDeliveryProvider {
-  public lastSent: { phone: string; code: string; ttlSeconds: number } | null = null;
-
-  async sendOtp(phone: string, code: string, ttlSeconds: number): Promise<void> {
-    this.lastSent = { phone, code, ttlSeconds };
-  }
-}
+const testDb = createTestDb('auth');
+const baseConfig = { ...testDb.config, OTP_MAX_ATTEMPTS: 3 };
 
 describe('ChiaNè Auth & Foundation API (Module 01)', () => {
   let prisma: PrismaClient;
@@ -40,33 +18,11 @@ describe('ChiaNè Auth & Foundation API (Module 01)', () => {
   let otpProvider: CaptureOtpProvider;
 
   beforeAll(async () => {
-    if (fs.existsSync(TEST_DB_FILE)) {
-      fs.unlinkSync(TEST_DB_FILE);
-    }
-
-    const prismaCli = path.resolve(__dirname, '../../node_modules/.bin/prisma.cmd');
-    const resolvedCli = fs.existsSync(prismaCli) ? prismaCli : 'npx';
-    const args = fs.existsSync(prismaCli)
-      ? ['db', 'push', '--skip-generate']
-      : ['prisma', 'db', 'push', '--skip-generate'];
-
-    execFileSync(resolvedCli, args, {
-      cwd: path.resolve(__dirname, '../..'),
-      env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
-      stdio: 'pipe',
-      shell: true,
-    });
-
-    prisma = new PrismaClient({
-      datasources: { db: { url: TEST_DATABASE_URL } },
-    });
-    await prisma.$connect();
+    prisma = await testDb.initPrisma();
   });
 
   beforeEach(async () => {
-    await prisma.refreshToken.deleteMany();
-    await prisma.otpChallenge.deleteMany();
-    await prisma.user.deleteMany();
+    await resetDb(prisma);
 
     otpProvider = new CaptureOtpProvider();
     app = await buildApp({
@@ -80,16 +36,7 @@ describe('ChiaNè Auth & Foundation API (Module 01)', () => {
     if (app) {
       await app.close();
     }
-    if (prisma) {
-      await prisma.$disconnect();
-    }
-    if (fs.existsSync(TEST_DB_FILE)) {
-      try {
-        fs.unlinkSync(TEST_DB_FILE);
-      } catch {
-        // Ignore locked Windows handle cleanup
-      }
-    }
+    await testDb.cleanupDb(prisma);
   });
 
   it('responds ok on GET /health', async () => {
@@ -305,5 +252,136 @@ describe('ChiaNè Auth & Foundation API (Module 01)', () => {
     });
     expect(afterLogout.statusCode).toBe(401);
     await noCooldownApp.close();
+  });
+
+  it('serves public Vietnamese HTML legal pages for Google Play compliance (/legal/privacy, /legal/terms, /legal/delete-account)', async () => {
+    const routes: Array<{ url: string; expectedText: string }> = [
+      { url: '/legal/privacy', expectedText: 'Chính sách quyền riêng tư' },
+      { url: '/legal/terms', expectedText: 'Điều khoản sử dụng' },
+      { url: '/legal/delete-account', expectedText: 'Hướng dẫn xóa tài khoản' },
+    ];
+
+    for (const route of routes) {
+      const res = await app.inject({ method: 'GET', url: route.url });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.body).toContain(route.expectedText);
+    }
+  });
+
+  it('blocks account deletion while active group balance is unsettled, then deletes account, promotes next admin, revokes tokens, and preserves group expense history once settled', async () => {
+    const testApp = await buildApp({
+      config: { ...baseConfig, OTP_RESEND_COOLDOWN_SECONDS: 0 },
+      prisma,
+      otpProvider,
+    });
+
+    try {
+      const userA = await createAuthedUser(testApp, otpProvider, '0912345678', 'An');
+      const userB = await createAuthedUser(testApp, otpProvider, '0987654321', 'Bình');
+
+      const groupRes = await testApp.inject({
+        method: 'POST',
+        url: '/api/v1/groups',
+        headers: userA.authHeader,
+        payload: { name: 'Đà Lạt 2026', category: 'TRAVEL' },
+      });
+      expect(groupRes.statusCode).toBe(201);
+      const group = groupRes.json().group;
+
+      const joinRes = await testApp.inject({
+        method: 'POST',
+        url: `/api/v1/invites/${group.inviteCode}/join`,
+        headers: userB.authHeader,
+        payload: {},
+      });
+      expect(joinRes.statusCode).toBe(201);
+      const binhMemberId = joinRes.json().memberId as string;
+
+      const expenseRes = await testApp.inject({
+        method: 'POST',
+        url: `/api/v1/groups/${group.id}/expenses`,
+        headers: userA.authHeader,
+        payload: {
+          title: 'Lẩu gà lá é',
+          amountVnd: 100000,
+          category: 'FOOD',
+          splitMethod: 'EQUAL',
+          paidByMemberId: group.myMemberId,
+          splits: [{ memberId: group.myMemberId }, { memberId: binhMemberId }],
+        },
+      });
+      expect(expenseRes.statusCode).toBe(201);
+
+      // Blocked while An has +50,000 VND unsettled balance in an active group
+      const blockedRes = await testApp.inject({
+        method: 'DELETE',
+        url: '/api/v1/auth/me',
+        headers: userA.authHeader,
+      });
+      expect(blockedRes.statusCode).toBe(400);
+      expect(blockedRes.json().error.code).toBe('UNSETTLED_ACCOUNT_CANNOT_DELETE');
+      expect(blockedRes.json().error.message).toContain('Đà Lạt 2026');
+
+      // Bình pays back 50,000 VND and An confirms
+      const reportRes = await testApp.inject({
+        method: 'POST',
+        url: `/api/v1/groups/${group.id}/settlements/report`,
+        headers: userB.authHeader,
+        payload: {
+          fromMemberId: binhMemberId,
+          toMemberId: group.myMemberId,
+          amountVnd: 50000,
+          method: 'CASH',
+        },
+      });
+      expect(reportRes.statusCode).toBe(201);
+      const settlementId = reportRes.json().settlement.id as string;
+
+      const confirmRes = await testApp.inject({
+        method: 'POST',
+        url: `/api/v1/settlements/${settlementId}/confirm`,
+        headers: userA.authHeader,
+      });
+      expect(confirmRes.statusCode).toBe(200);
+
+      // Now all balances are 0 -> An can delete her account
+      const deleteRes = await testApp.inject({
+        method: 'DELETE',
+        url: '/api/v1/auth/me',
+        headers: userA.authHeader,
+      });
+      expect(deleteRes.statusCode).toBe(200);
+      expect(deleteRes.json().success).toBe(true);
+
+      // Refresh token revoked & /me rejects deleted account
+      const refreshAfter = await testApp.inject({
+        method: 'POST',
+        url: '/api/v1/auth/refresh',
+        payload: { refreshToken: userA.refreshToken },
+      });
+      expect(refreshAfter.statusCode).toBe(401);
+
+      const meAfter = await testApp.inject({
+        method: 'GET',
+        url: '/api/v1/auth/me',
+        headers: userA.authHeader,
+      });
+      expect(meAfter.statusCode).toBe(404);
+
+      // Group history intact and Bình was promoted to ADMIN
+      const groupAfter = await testApp.inject({
+        method: 'GET',
+        url: `/api/v1/groups/${group.id}`,
+        headers: userB.authHeader,
+      });
+      expect(groupAfter.statusCode).toBe(200);
+      const groupData = groupAfter.json().group;
+      expect(groupData.myRole).toBe('ADMIN');
+      expect(groupData.expenses).toHaveLength(1);
+      expect(groupData.expenses[0].amountVnd).toBe(100000);
+    } finally {
+      await testApp.close();
+    }
   });
 });

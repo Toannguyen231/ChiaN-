@@ -1,3 +1,4 @@
+import { CollectPaymentButton } from '../../components/CollectPaymentButton';
 import React, { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -31,7 +32,7 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
     async (isRefresh = false) => {
       if (isRefresh) {
         setRefreshing(true);
-      } else if (!data) {
+      } else {
         setLoading(true);
       }
       setErrorText(null);
@@ -49,7 +50,7 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
         setRefreshing(false);
       }
     },
-    [data, groupId]
+    [groupId]
   );
 
   useFocusEffect(
@@ -212,8 +213,8 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
                   const canRemind = transfer.isToMe && myMemberRole !== 'GUEST';
                   const tappable = transfer.isFromMe || canRemind;
                   return (
+                    <View key={`${transfer.fromMemberId}-${transfer.toMemberId}`} style={styles.transferItemGroup}>
                     <Pressable
-                      key={`${transfer.fromMemberId}-${transfer.toMemberId}`}
                       disabled={!tappable}
                       onPress={() => {
                         if (transfer.isFromMe) {
@@ -254,6 +255,9 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
                         ) : null}
                       </View>
                     </Pressable>
+                    {transfer.isToMe && (transfer.fromIsPlaceholder || myMemberRole === 'ADMIN') &&
+                      <CollectPaymentButton groupId={groupId} transfer={transfer} refresh={() => loadBalances(true)} />}
+                    </View>
                   );
                 })}
               </View>
@@ -261,7 +265,7 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
           ) : null}
 
           <Text style={styles.caption}>
-            Chỉ ghi nhận sau khi người nhận xác nhận.
+            Số dư cập nhật khi thanh toán được xác nhận.
           </Text>
         </View>
       ) : null}
@@ -395,6 +399,9 @@ const styles = StyleSheet.create({
   transferRightCol: {
     alignItems: 'flex-end',
     gap: 2,
+  },
+  transferItemGroup: {
+    gap: 6,
   },
   transferAmount: {
     fontFamily: fonts.semiBold,

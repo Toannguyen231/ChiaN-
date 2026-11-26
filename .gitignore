@@ -9,6 +9,8 @@ node_modules/
 .env.*.local
 !.env.example
 
+uploads/
+
 # Databases
 *.db
 *.db-journal

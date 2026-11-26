@@ -1,3 +1,4 @@
+import { isPlaceholder } from '../services/placeholder.service';
 import {
   buildVietQrPayload,
   formatVnd,
@@ -34,6 +35,8 @@ const settlementInclude = {
   toMember: {
     select: {
       displayName: true,
+      userId: true,
+      guestTokenHash: true,
       user: {
         select: {
           bankBin: true,
@@ -68,6 +71,15 @@ function parseBankSnapshot(
   return buildBankPreview(fallbackUser);
 }
 
+function canConfirmPayment(
+  settlement: { fromMemberId: string; toMemberId: string; toMember: { userId: string | null; guestTokenHash: string | null } },
+  actorId: string,
+  role: string
+) {
+  return actorId === settlement.toMemberId ||
+    (isPlaceholder(settlement.toMember) && (actorId === settlement.fromMemberId || role === 'ADMIN'));
+}
+
 function serializeSettlement(
   settlement: {
     id: string;
@@ -89,6 +101,8 @@ function serializeSettlement(
     fromMember: { displayName: string };
     toMember: {
       displayName: string;
+      userId: string | null;
+      guestTokenHash: string | null;
       user: {
         bankBin: string | null;
         bankName: string | null;
@@ -97,7 +111,8 @@ function serializeSettlement(
       } | null;
     };
   },
-  myMemberId: string
+  myMemberId: string,
+  role: string
 ): SettlementDto {
   const bankPreview = parseBankSnapshot(
     settlement.bankAccountSnapshot,
@@ -130,7 +145,7 @@ function serializeSettlement(
     toBankPreview: bankPreview,
     vietQrPayload,
     idempotencyKey: settlement.idempotencyKey,
-    canConfirm: isRecipient && isReported,
+    canConfirm: isReported && canConfirmPayment(settlement, myMemberId, role),
     canReject: isRecipient && isReported,
     reportedAt: settlement.reportedAt ? settlement.reportedAt.toISOString() : null,
     confirmedAt: settlement.confirmedAt ? settlement.confirmedAt.toISOString() : null,
@@ -192,6 +207,7 @@ export async function registerSettlementsRoutes(
 
       const memberBalances = activeMembers.map((m) => ({
         memberId: m.id,
+        isPlaceholder: isPlaceholder(m),
         displayName: m.displayName,
         role: m.role as GroupMemberRole,
         netBalanceVnd: financials.balancesMap.get(m.id) ?? 0,
@@ -204,6 +220,7 @@ export async function registerSettlementsRoutes(
         const to = memberLookup.get(t.toMemberId);
         return {
           fromMemberId: t.fromMemberId,
+          fromIsPlaceholder: from ? isPlaceholder(from) : false,
           fromName: from?.displayName ?? 'Thành viên',
           toMemberId: t.toMemberId,
           toName: to?.displayName ?? 'Thành viên',
@@ -222,7 +239,7 @@ export async function registerSettlementsRoutes(
         memberBalances,
         suggestedTransfers,
         pendingSettlements: pendingRaw.map((s) =>
-          serializeSettlement(s, membership.memberId)
+          serializeSettlement(s, membership.memberId, membership.role)
         ),
       };
 
@@ -256,7 +273,7 @@ export async function registerSettlementsRoutes(
       });
 
       return reply.status(200).send({
-        settlements: rows.map((r) => serializeSettlement(r, membership.memberId)),
+        settlements: rows.map((r) => serializeSettlement(r, membership.memberId, membership.role)),
       });
     }
   );
@@ -284,7 +301,7 @@ export async function registerSettlementsRoutes(
       const financials = await computeGroupFinancials(prisma, settlement.groupId);
 
       return reply.status(200).send({
-        settlement: serializeSettlement(settlement, membership.id),
+        settlement: serializeSettlement(settlement, membership.id, membership.role),
         myNewGroupBalanceVnd: financials.balancesMap.get(membership.id) ?? 0,
       });
     }
@@ -318,7 +335,7 @@ export async function registerSettlementsRoutes(
             );
           }
           return reply.status(200).send({
-            settlement: serializeSettlement(existing, membership.memberId),
+            settlement: serializeSettlement(existing, membership.memberId, membership.role),
           });
         }
       }
@@ -331,72 +348,75 @@ export async function registerSettlementsRoutes(
         );
       }
 
-      if (input.fromMemberId !== membership.memberId && membership.role !== 'ADMIN') {
-        throw new AppError(
-          403,
-          'INSUFFICIENT_ROLE',
-          'Bạn chỉ có thể báo thanh toán cho khoản của chính mình.'
-        );
-      }
-
-      const [fromMember, toMember] = await Promise.all([
-        prisma.groupMember.findFirst({
-          where: {
-            id: input.fromMemberId,
-            groupId: membership.groupId,
-            status: 'ACTIVE',
-          },
-        }),
-        prisma.groupMember.findFirst({
-          where: {
-            id: input.toMemberId,
-            groupId: membership.groupId,
-            status: 'ACTIVE',
-          },
-          include: {
-            user: {
-              select: {
-                bankBin: true,
-                bankName: true,
-                bankAccountNumber: true,
-                bankAccountHolder: true,
+      const created = await prisma.$transaction(async (tx) => {
+        const [fromMember, toMember] = await Promise.all([
+          tx.groupMember.findFirst({
+            where: {
+              id: input.fromMemberId,
+              groupId: membership.groupId,
+              status: 'ACTIVE',
+            },
+          }),
+          tx.groupMember.findFirst({
+            where: {
+              id: input.toMemberId,
+              groupId: membership.groupId,
+              status: 'ACTIVE',
+            },
+            include: {
+              user: {
+                select: {
+                  bankBin: true,
+                  bankName: true,
+                  bankAccountNumber: true,
+                  bankAccountHolder: true,
+                },
               },
             },
+          }),
+        ]);
+
+        if (!fromMember || !toMember) {
+          throw new AppError(
+            400,
+            'INVALID_PARTICIPANT',
+            'Thành viên thanh toán không hợp lệ trong nhóm.'
+          );
+        }
+
+        const recordingReceipt = membership.memberId === toMember.id &&
+          (isPlaceholder(fromMember) || membership.role === 'ADMIN');
+        const payingPlaceholder = membership.memberId === fromMember.id && isPlaceholder(toMember);
+        const allowed = input.autoConfirm
+          ? recordingReceipt || payingPlaceholder
+          : membership.memberId === fromMember.id || membership.role === 'ADMIN';
+        if (!allowed) {
+          throw new AppError(403, 'INSUFFICIENT_ROLE', 'Bạn không thể ghi nhận khoản thanh toán này.');
+        }
+
+        const recentDuplicate = await tx.settlement.findFirst({
+          where: {
+            groupId: membership.groupId,
+            fromMemberId: input.fromMemberId,
+            toMemberId: input.toMemberId,
+            amountVnd: input.amountVnd,
+            status: 'REPORTED',
+            createdAt: { gte: new Date(Date.now() - 120_000) },
           },
-        }),
-      ]);
+        });
 
-      if (!fromMember || !toMember) {
-        throw new AppError(
-          400,
-          'INVALID_PARTICIPANT',
-          'Thành viên thanh toán không hợp lệ trong nhóm.'
-        );
-      }
+        if (recentDuplicate) {
+          throw new AppError(
+            409,
+            'DUPLICATE_PENDING_SETTLEMENT',
+            'Bạn vừa báo chuyển khoản số tiền này và đang chờ người nhận xác nhận.'
+          );
+        }
 
-      const recentDuplicate = await prisma.settlement.findFirst({
-        where: {
-          groupId: membership.groupId,
-          fromMemberId: input.fromMemberId,
-          toMemberId: input.toMemberId,
-          amountVnd: input.amountVnd,
-          status: 'REPORTED',
-          createdAt: { gte: new Date(Date.now() - 120_000) },
-        },
-      });
-
-      if (recentDuplicate) {
-        throw new AppError(
-          409,
-          'DUPLICATE_PENDING_SETTLEMENT',
-          'Bạn vừa báo chuyển khoản số tiền này và đang chờ người nhận xác nhận.'
-        );
-      }
-
-      const bankPreview = buildBankPreview(toMember.user);
-      const bankSnapshotJson = JSON.stringify(bankPreview);
-
-      const created = await prisma.$transaction(async (tx) => {
+        const bankPreview = buildBankPreview(toMember.user);
+        const bankSnapshotJson = JSON.stringify(bankPreview);
+        const now = new Date();
+        const status = input.autoConfirm ? 'CONFIRMED' : 'REPORTED';
         const record = await tx.settlement.create({
           data: {
             groupId: membership.groupId,
@@ -404,11 +424,12 @@ export async function registerSettlementsRoutes(
             toMemberId: input.toMemberId,
             amountVnd: input.amountVnd,
             method: input.method,
-            status: 'REPORTED',
+            status,
             memo: input.memo ?? null,
             bankAccountSnapshot: bankSnapshotJson,
             idempotencyKey: input.idempotencyKey ?? null,
-            reportedAt: new Date(),
+            reportedAt: now,
+            confirmedAt: input.autoConfirm ? now : null,
           },
           include: settlementInclude,
         });
@@ -421,20 +442,20 @@ export async function registerSettlementsRoutes(
         await logActivity(tx, {
           groupId: membership.groupId,
           actorMemberId: membership.memberId,
-          type: 'SETTLEMENT_REPORTED',
-          title: `${fromMember.displayName} đã báo chuyển tiền`,
-          subtitle: `${formatVnd(input.amountVnd)} cho ${toMember.displayName} · Chờ xác nhận`,
+          type: input.autoConfirm ? 'SETTLEMENT_CONFIRMED' : 'SETTLEMENT_REPORTED',
+          title: input.autoConfirm ? `Đã ghi nhận thanh toán cho ${toMember.displayName}` : `${fromMember.displayName} đã báo chuyển tiền`,
+          subtitle: `${formatVnd(input.amountVnd)} cho ${toMember.displayName}${input.autoConfirm ? '' : ' · Chờ xác nhận'}`,
           metadata: {
             settlementId: record.id,
             amountVnd: record.amountVnd,
-            status: 'REPORTED',
+            status,
           },
         });
 
         return record;
-      });
+      }, { isolationLevel: 'Serializable' });
 
-      void notifySettlementReported(prisma, {
+      if (!input.autoConfirm) void notifySettlementReported(prisma, {
         settlementId: created.id,
         groupId: created.groupId,
         groupName: created.group.name,
@@ -444,7 +465,7 @@ export async function registerSettlementsRoutes(
       });
 
       return reply.status(201).send({
-        settlement: serializeSettlement(created, membership.memberId),
+        settlement: serializeSettlement(created, membership.memberId, membership.role),
       });
     }
   );
@@ -471,7 +492,8 @@ export async function registerSettlementsRoutes(
       );
       await assertNotArchived(prisma, existing.groupId);
 
-      if (membership.id !== existing.toMemberId) {
+      const actingForPlaceholder = membership.id !== existing.toMemberId;
+      if (!canConfirmPayment(existing, membership.id, membership.role)) {
         throw new AppError(
           403,
           'ONLY_RECIPIENT_CAN_CONFIRM',
@@ -489,7 +511,7 @@ export async function registerSettlementsRoutes(
 
       const updated = await prisma.$transaction(async (tx) => {
         const record = await tx.settlement.update({
-          where: { id: existing.id },
+          where: { id: existing.id, status: 'REPORTED', ...(actingForPlaceholder ? { toMember: { userId: null, guestTokenHash: null } } : {}) },
           data: {
             status: 'CONFIRMED',
             confirmedAt: new Date(),
@@ -506,7 +528,7 @@ export async function registerSettlementsRoutes(
           groupId: existing.groupId,
           actorMemberId: membership.id,
           type: 'SETTLEMENT_CONFIRMED',
-          title: `${existing.toMember.displayName} đã xác nhận nhận tiền`,
+          title: `${membership.displayName} đã xác nhận thanh toán`,
           subtitle: `${formatVnd(existing.amountVnd)} từ ${existing.fromMember.displayName}`,
           metadata: {
             settlementId: record.id,
@@ -521,7 +543,7 @@ export async function registerSettlementsRoutes(
       const financials = await computeGroupFinancials(prisma, existing.groupId);
 
       return reply.status(200).send({
-        settlement: serializeSettlement(updated, membership.id),
+        settlement: serializeSettlement(updated, membership.id, membership.role),
         updatedBalances: financials.memberBalances,
         myNewGroupBalanceVnd: financials.balancesMap.get(membership.id) ?? 0,
       });
@@ -571,7 +593,7 @@ export async function registerSettlementsRoutes(
 
       const updated = await prisma.$transaction(async (tx) => {
         const record = await tx.settlement.update({
-          where: { id: existing.id },
+          where: { id: existing.id, status: 'REPORTED' },
           data: {
             status: 'REJECTED',
             rejectedAt: new Date(),
@@ -602,7 +624,7 @@ export async function registerSettlementsRoutes(
       });
 
       return reply.status(200).send({
-        settlement: serializeSettlement(updated, membership.id),
+        settlement: serializeSettlement(updated, membership.id, membership.role),
       });
     }
   );

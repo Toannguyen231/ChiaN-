@@ -98,4 +98,11 @@ export const authApi = {
       }
     );
   },
+
+  deleteAccount(): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>('/api/v1/auth/me', {
+      method: 'DELETE',
+      authenticated: true,
+    });
+  },
 };

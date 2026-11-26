@@ -1,3 +1,5 @@
+import { joinInviteSchema } from '@chiane/shared';
+import { claimPlaceholder, isPlaceholder } from '../services/placeholder.service';
 import type {
   GroupMemberRole,
   GroupMemberStatus,
@@ -369,6 +371,7 @@ export async function registerGroupsRoutes(
         member: {
           id: memberRecord.id,
           userId: memberRecord.userId,
+          isPlaceholder: isPlaceholder(memberRecord),
           displayName: memberRecord.displayName,
           role: memberRecord.role as GroupMemberRole,
           status: memberRecord.status as GroupMemberStatus,
@@ -562,6 +565,7 @@ export async function registerGroupsRoutes(
         member: {
           id: target.id,
           userId: target.userId,
+          isPlaceholder: isPlaceholder(target),
           displayName: target.displayName,
           role: target.role as GroupMemberRole,
           status: target.status as GroupMemberStatus,
@@ -582,12 +586,31 @@ export async function registerGroupsRoutes(
     }
   );
 
+  app.delete('/api/v1/groups/:groupId', {
+    preHandler: [requireAuth, createRequireGroupRole(prisma, ['ADMIN'])],
+  }, async (request, reply) => {
+    const { groupId } = request.groupMembership!;
+    await prisma.$transaction(async (tx) => {
+      const financials = await computeGroupFinancials(tx, groupId);
+      const pending = await tx.settlement.count({ where: { groupId, status: 'REPORTED' } });
+      if (pending || financials.memberBalances.some(m => m.netBalanceVnd !== 0)) {
+        throw new AppError(400, 'UNSETTLED_GROUP_CANNOT_DELETE', 'Nhóm còn số dư hoặc thanh toán chờ xác nhận. Hãy tất toán trước khi xóa nhé.');
+      }
+      await tx.paymentReminder.deleteMany({ where: { groupId } });
+      await tx.settlement.deleteMany({ where: { groupId } });
+      await tx.expense.deleteMany({ where: { groupId } });
+      await tx.group.delete({ where: { id: groupId } });
+    }, { isolationLevel: 'Serializable' });
+    return reply.send({ success: true });
+  });
+
   app.post(
     '/api/v1/invites/:inviteCode/join',
     { preHandler: requireAuth },
     async (request, reply) => {
       const userId = request.authUser!.userId;
       const { inviteCode } = request.params as { inviteCode: string };
+      const { claimMemberId } = joinInviteSchema.parse(request.body ?? {});
       const normalizedCode = inviteCode.trim().toLowerCase();
 
       const group = await prisma.group.findFirst({
@@ -611,6 +634,9 @@ export async function registerGroupsRoutes(
         where: { groupId: group.id, userId },
       });
 
+      if (existing && claimMemberId && existing.id !== claimMemberId) {
+        throw new AppError(409, 'ALREADY_GROUP_MEMBER', 'Tài khoản của bạn đã có tên trong nhóm.');
+      }
       if (existing && existing.status === 'ACTIVE') {
         return reply.status(200).send({
           groupId: group.id,
@@ -622,7 +648,8 @@ export async function registerGroupsRoutes(
       const displayName = user.displayName.trim() || maskVnPhone(user.phone);
 
       const member = await prisma.$transaction(async (tx) => {
-        const saved = existing
+        const claimed = claimMemberId ? await claimPlaceholder(tx, group.id, claimMemberId, { userId, role: 'MEMBER' }, user.displayName.trim()) : null;
+        const saved = claimed ?? (existing
           ? await tx.groupMember.update({
               where: { id: existing.id },
               data: {
@@ -639,13 +666,13 @@ export async function registerGroupsRoutes(
                 role: 'MEMBER',
                 status: 'ACTIVE',
               },
-            });
+            }));
 
         await logActivity(tx, {
           groupId: group.id,
           actorMemberId: saved.id,
           type: 'MEMBER_JOINED',
-          title: `${displayName} đã tham gia nhóm`,
+          title: claimed ? `${saved.displayName} đã liên kết tài khoản vào thành viên ${claimed.originalName}` : `${displayName} đã tham gia nhóm`,
           subtitle: group.name,
           metadata: { memberId: saved.id },
         });

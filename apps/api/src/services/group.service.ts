@@ -1,3 +1,4 @@
+import { isPlaceholder } from './placeholder.service';
 import crypto from 'node:crypto';
 import type {
   ExpenseCategory,
@@ -211,6 +212,7 @@ export async function getGroupDetailForMember(
   const members: GroupMemberDto[] = group.members.map((m) => ({
     id: m.id,
     userId: m.userId,
+    isPlaceholder: isPlaceholder(m),
     displayName: m.displayName,
     role: m.role as GroupMemberRole,
     status: m.status as GroupMemberStatus,
