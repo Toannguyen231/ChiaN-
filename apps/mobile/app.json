@@ -9,7 +9,7 @@
     "icon": "./assets/branding/icon.png",
     "android": {
       "package": "com.chiane.app",
-      "versionCode": 1,
+      "versionCode": 2,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/branding/adaptive-icon.png",
