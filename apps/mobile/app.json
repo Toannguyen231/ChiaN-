@@ -48,10 +48,17 @@
         "expo-image-picker",
         {
           "photosPermission": "ChiaNè cần quyền truy cập thư viện ảnh để đính kèm hóa đơn chi tiêu.",
-          "cameraPermission": "ChiaNè cần quyền truy cập máy ảnh để chụp và quét hóa đơn chi tiêu."
+          "cameraPermission": "ChiaNè cần quyền truy cập máy ảnh để chụp và quét hóa đơn chi tiêu.",
+          "microphonePermission": false
         }
       ],
       "expo-sharing"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "39de7ce0-7b13-4564-a5ef-75d8cc912eed"
+      }
+    },
+    "owner": "baybay6161"
   }
 }
