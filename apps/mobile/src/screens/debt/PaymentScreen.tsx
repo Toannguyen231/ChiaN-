@@ -29,7 +29,7 @@ import { ApiClientError } from '../../services/apiClient';
 import { settlementsApi } from '../../services/settlementsApi';
 import { colors, fonts, radii, shadows, tabularNums } from '../../theme/tokens';
 
-type Props = NativeStackScreenProps<AppStackParamList, 'Payment'>;
+type Props = NativeStackScreenProps<AppStackParamList, 'Payment' | 'BankTransferQr'>;
 
 function buildCleanMemo(fromName: string, groupName: string): string {
   const ascii = `${fromName} tra tien ${groupName}`
@@ -167,7 +167,7 @@ export function PaymentScreen({ navigation, route }: Props) {
           <ChiaNeButton
             label={
               method === 'BANK_TRANSFER'
-                ? 'Tôi đã chuyển khoản'
+                ? (vietQrPayload ? 'Tôi đã chuyển khoản' : 'Tôi đã chuyển khoản bằng cách khác')
                 : 'Báo đã thanh toán tiền mặt'
             }
             variant="primary"
@@ -205,14 +205,14 @@ export function PaymentScreen({ navigation, route }: Props) {
 
           <AnimatedSegmentedControl<SettlementMethod>
             options={[
-              { key: 'BANK_TRANSFER', label: 'Chuyển khoản VietQR' },
+              { key: 'BANK_TRANSFER', label: 'Chuyển khoản' },
               { key: 'CASH', label: 'Tiền mặt' },
             ]}
             value={method}
             onChange={setMethod}
           />
 
-          {method === 'BANK_TRANSFER' ? (
+          {method === 'BANK_TRANSFER' && vietQrPayload ? (
             <>
               <View style={styles.qrCard}>
                 <VietQrMatrix payload={vietQrPayload} size={196} />
@@ -224,15 +224,8 @@ export function PaymentScreen({ navigation, route }: Props) {
                     ? `${bankPreview.bankName ?? 'Ngân hàng'} · ${bankPreview.bankAccountNumber ?? ''}`
                     : 'Người nhận chưa cập nhật tài khoản ngân hàng'}
                 </Text>
-                <Text
-                  style={[
-                    styles.qrNotice,
-                    !vietQrPayload && styles.qrNoticeWarning,
-                  ]}
-                >
-                  {vietQrPayload
-                    ? 'QR VIETQR CHUẨN NAPAS 247 · ĐIỀN SẴN SỐ TIỀN'
-                    : 'QR MINH HỌA · KHÔNG CHUYỂN TIỀN'}
+                <Text style={styles.qrNotice}>
+                  Nếu dùng cùng điện thoại, sao chép số tài khoản và nội dung rồi mở ứng dụng ngân hàng để chuyển.
                 </Text>
               </View>
 
@@ -261,6 +254,16 @@ export function PaymentScreen({ navigation, route }: Props) {
                 </Pressable>
               </View>
             </>
+          ) : method === 'BANK_TRANSFER' ? (
+            <InfoCard tone="white" style={styles.cashCard}>
+              <Text style={styles.cashTitle}>
+                {bankPreview?.hasRealBank ? 'Chưa tạo được mã VietQR' : 'Người nhận chưa thêm tài khoản ngân hàng'}
+              </Text>
+              <Text style={styles.cashSub}>
+                Hỏi người nhận số tài khoản để chuyển bằng ứng dụng ngân hàng, hoặc chọn Tiền mặt ở trên.
+                Chỉ báo đã chuyển sau khi giao dịch thành công.
+              </Text>
+            </InfoCard>
           ) : (
             <InfoCard tone="white" style={styles.cashCard}>
               <View style={styles.cashTopRow}>
@@ -281,7 +284,7 @@ export function PaymentScreen({ navigation, route }: Props) {
             <IconShieldPurple width={22} height={22} />
             <Text style={styles.safetyText}>
               {recipient.isPlaceholder ? 'Thành viên này chưa dùng app — khoản thanh toán sẽ được ghi nhận hoàn tất ngay.' : method === 'BANK_TRANSFER'
-                ? 'Kiểm tra kỹ tên người nhận trước khi chuyển. Chỉ bấm "Tôi đã chuyển khoản" sau khi đã thanh toán xong.'
+                ? 'Kiểm tra kỹ tên người nhận trước khi chuyển. Người nhận sẽ xác nhận sau khi nhận được tiền.'
                 : 'Số dư trong nhóm sẽ được gạch nợ ngay sau khi người nhận xác nhận đã nhận tiền.'}
             </Text>
           </View>
@@ -354,9 +357,6 @@ const styles = StyleSheet.create({
     color: colors.forest,
     marginTop: 6,
     textAlign: 'center',
-  },
-  qrNoticeWarning: {
-    color: colors.coral,
   },
   memoBox: {
     minHeight: 54,

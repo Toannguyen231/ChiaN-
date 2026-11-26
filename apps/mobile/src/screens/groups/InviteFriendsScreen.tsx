@@ -46,7 +46,7 @@ function buildInviteMessage(
     return `✈️ Cả nhà ơi, mình vừa tạo nhóm "${groupName}" trên ChiaNè để gom chung quỹ đi chơi & quét hóa đơn tự động!\n👉 Bấm vào link này để vào nhóm xem chi tiêu & chia tiền (không cần tải app vẫn xem được):\n${inviteLink}`;
   }
   if (tone === 'OFFICE') {
-    return `🏠 Chào mọi người, mình lập nhóm "${groupName}" trên ChiaNè để tổng kết các khoản chi chung minh bạch, thanh toán VietQR 1 chạm.\n👉 Tham gia nhóm qua liên kết này nhé:\n${inviteLink}`;
+    return `🏠 Chào mọi người, mình lập nhóm "${groupName}" trên ChiaNè để tổng kết các khoản chi chung minh bạch, theo dõi ai đã thanh toán.\n👉 Tham gia nhóm qua liên kết này nhé:\n${inviteLink}`;
   }
   return `🎉 Ê mọi người ơi! Mình lập nhóm "${groupName}" trên ChiaNè để chia tiền ăn chơi cho sòng phẳng, khỏi sợ tính nhầm hay quên nợ nha!\n👉 Bấm vào đây để vào nhóm cùng mình (khách vào xem luôn không cần tải app):\n${inviteLink}`;
 }

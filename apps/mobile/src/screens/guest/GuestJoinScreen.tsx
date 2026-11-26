@@ -37,7 +37,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
   const guestGroupId = useAuthStore(s => s.guestSession?.groupId);
   const alreadyGuest = authStatus === 'guest' && !!preview && guestGroupId === preview.groupId;
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ title: string; message: string } | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
@@ -51,11 +51,9 @@ export function GuestJoinScreen({ navigation, route }: Props) {
       setClaimMemberId(undefined);
       setPreview(data);
     } catch (err) {
-      setLoadError(
-        err instanceof ApiClientError
-          ? err.message
-          : 'Không tìm thấy nhóm với liên kết mời này.'
-      );
+      setLoadError(err instanceof ApiClientError && err.code === 'INVITE_NOT_FOUND'
+        ? { title: 'Liên kết mời không hợp lệ', message: 'Hãy xin người mời gửi liên kết mới.' }
+        : { title: 'Chưa tải được thông tin nhóm', message: err instanceof ApiClientError ? err.message : 'Vui lòng thử lại.' });
     } finally {
       setLoading(false);
     }
@@ -65,12 +63,16 @@ export function GuestJoinScreen({ navigation, route }: Props) {
     void loadPreview();
   }, [loadPreview]);
 
+  useEffect(() => {
+    if (alreadyGuest && preview?.inviteCode === inviteCode.trim().toLowerCase()) {
+      (navigation as NativeStackScreenProps<AppStackParamList, 'GuestJoin'>['navigation']).replace(
+        'GroupDetails', { groupId: preview.groupId }
+      );
+    }
+  }, [alreadyGuest, inviteCode, navigation, preview]);
+
   const handleJoin = async () => {
     if (!preview || preview.inviteCode !== inviteCode.trim().toLowerCase()) return;
-    if (alreadyGuest) {
-      (navigation as NativeStackScreenProps<AppStackParamList, 'GuestJoin'>['navigation']).replace('GroupDetails', { groupId: preview.groupId });
-      return;
-    }
     setSubmitError(null);
     setJoining(true);
     try {
@@ -117,24 +119,24 @@ export function GuestJoinScreen({ navigation, route }: Props) {
         />
       }
       footer={
-        preview && !loading && !loadError && (!preview.isArchived || alreadyGuest) ? (
+        preview && !loading && !loadError && !preview.isArchived && !alreadyGuest ? (
           <ChiaNeButton
-            label={alreadyGuest ? 'Mở nhóm' : isAuthenticatedUser ? 'Tham gia nhóm ngay' : 'Tham gia nhóm'}
+            label={isAuthenticatedUser ? 'Tham gia nhóm ngay' : 'Tham gia nhóm'}
             variant="primary"
             loading={joining}
-            disabled={!alreadyGuest && !isAuthenticatedUser && !claimMemberId && !displayName.trim()}
+            disabled={!isAuthenticatedUser && !claimMemberId && !displayName.trim()}
             onPress={() => void handleJoin()}
           />
         ) : undefined
       }
     >
-      {loading ? (
+      {loading || alreadyGuest ? (
         <StateView kind="loading" title="Đang mở liên kết mời..." />
       ) : loadError || !preview ? (
         <StateView
           kind="error"
-          title="Liên kết mời không hợp lệ"
-          description={loadError ?? undefined}
+          title={loadError?.title ?? 'Chưa tải được thông tin nhóm'}
+          description={loadError?.message}
           actionLabel="Thử lại"
           onAction={() => void loadPreview()}
         />
@@ -148,7 +150,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
-          {!alreadyGuest && !preview.isArchived && Boolean(preview.claimableMembers?.length) && (
+          {!preview.isArchived && Boolean(preview.claimableMembers?.length) && (
             <View style={styles.accountConfirmCard}>
               <Text style={styles.accountConfirmTitle}>Bạn đã có tên trong nhóm này chưa?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -160,7 +162,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
               </View>
             </View>
           )}
-          {alreadyGuest ? <Text style={styles.question}>Bạn đã tham gia nhóm này.</Text> : preview.isArchived ? (
+          {preview.isArchived ? (
             <StateView
               kind="empty"
               title="Nhóm này đã lưu trữ"

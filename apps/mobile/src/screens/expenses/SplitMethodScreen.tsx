@@ -1,3 +1,4 @@
+import { VndInput } from '../../components/VndInput';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -5,7 +6,6 @@ import {
   calculateEqualSplit,
   calculatePercentageSplit,
   formatVnd,
-  parseVndInput,
   validateExactSplit,
   type SplitMethod,
 } from '@chiane/shared';
@@ -383,8 +383,6 @@ export function SplitMethodScreen({ navigation, route }: Props) {
               <View style={styles.listCard}>
                 {members.map((member, index) => {
                   const val = exactMap[member.id] ?? 0;
-                  const formatted =
-                    val > 0 ? formatVnd(val, { includeSymbol: false }) : '';
                   return (
                     <React.Fragment key={member.id}>
                       {index > 0 ? <View style={styles.divider} /> : null}
@@ -394,10 +392,9 @@ export function SplitMethodScreen({ navigation, route }: Props) {
                           {member.isMe ? ' (bạn)' : ''}
                         </Text>
                         <View style={styles.exactInputBox}>
-                          <TextInput
-                            value={formatted}
-                            onChangeText={(raw) => {
-                              const parsed = parseVndInput(raw);
+                          <VndInput
+                            amount={val}
+                            onAmountChange={(parsed) => {
                               setExactMap((prev) => ({
                                 ...prev,
                                 [member.id]: parsed,
@@ -405,7 +402,6 @@ export function SplitMethodScreen({ navigation, route }: Props) {
                             }}
                             placeholder="0"
                             placeholderTextColor={colors.muted}
-                            keyboardType="number-pad"
                             style={styles.exactInput}
                           />
                           <Text style={styles.exactUnit}>₫</Text>

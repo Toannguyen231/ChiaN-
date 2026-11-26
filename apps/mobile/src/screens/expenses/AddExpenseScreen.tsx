@@ -1,3 +1,4 @@
+import { VndInput } from '../../components/VndInput';
 import { inferReceiptMimeType, uploadReceiptIfNeeded } from '../../services/receiptUploads';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -10,7 +11,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -18,7 +18,6 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   calculateItemizedSplit,
   formatVnd,
-  parseVndInput,
   validateExactSplit,
   type ExpenseCategory,
   type ReceiptItemDto,
@@ -418,8 +417,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           ? 'Số tiền'
           : 'Phần trăm';
 
-  const handleAmountChange = (raw: string) => {
-    const nextAmount = parseVndInput(raw);
+  const handleAmountChange = (nextAmount: number) => {
     if (hasCustomItemAssignments && nextAmount > 0 && members.length > 0) {
       const result = calculateItemizedSplit(
         nextAmount,
@@ -442,9 +440,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
     if (submitError) setSubmitError(null);
   };
-
-  const formattedAmountInput =
-    draft.amountVnd > 0 ? formatVnd(draft.amountVnd, { includeSymbol: false }) : '';
 
   const handleOpenDateModal = () => {
     setDateText(formatDateVi(draft.expenseDateIso));
@@ -702,16 +697,14 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
           {/* 2) Hero Amount Input */}
           <View style={styles.amountCard}>
-            <Text style={styles.amountEyebrow}>SỐ TIỀN</Text>
+            <Text style={styles.amountEyebrow}>SỐ TIỀN · Ví dụ 120k = 120.000 ₫</Text>
             <View style={styles.amountRow}>
-              <TextInput
-                value={formattedAmountInput}
-                onChangeText={handleAmountChange}
+              <VndInput
+                amount={draft.amountVnd}
+                onAmountChange={handleAmountChange}
                 placeholder="0"
                 placeholderTextColor={colors.muted}
-                keyboardType="number-pad"
                 style={[styles.amountInput, tabularNums]}
-                maxLength={14}
               />
               <Text style={styles.currencySymbol}>₫</Text>
             </View>

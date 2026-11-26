@@ -1,3 +1,4 @@
+import { VndInput } from '../../components/VndInput';
 import { CollectPaymentButton } from '../../components/CollectPaymentButton';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -18,7 +19,6 @@ import * as Sharing from 'expo-sharing';
 import {
   buildVietQrPayload,
   formatVnd,
-  parseVndInput,
   type ExpenseDto,
   type GroupBalancesDto,
   type GroupPotDto,
@@ -1413,18 +1413,13 @@ export function GroupDetailsScreen({ navigation, route }: Props) {
           )
         ) : null}
 
-        <ChiaNeInput
+        <VndInput
           label="Số tiền góp (₫)"
-          value={
-            potAmountVnd > 0
-              ? formatVnd(potAmountVnd, { includeSymbol: false })
-              : ''
-          }
-          onChangeText={(raw) => {
-            setPotAmountVnd(parseVndInput(raw));
+          amount={potAmountVnd}
+          onAmountChange={(amount) => {
+            setPotAmountVnd(amount);
             if (potError) setPotError(null);
           }}
-          keyboardType="number-pad"
           placeholder="500.000"
           errorText={potError}
         />

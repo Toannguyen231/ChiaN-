@@ -11,7 +11,6 @@ import { PhoneChangeScreen } from '../screens/account/PhoneChangeScreen';
 import { FriendlyReminderScreen } from '../screens/activity/FriendlyReminderScreen';
 import { PaymentCompletedScreen } from '../screens/activity/PaymentCompletedScreen';
 import { DisplayNameSetupScreen } from '../screens/auth/DisplayNameSetupScreen';
-import { BankTransferQrScreen } from '../screens/debt/BankTransferQrScreen';
 import { ConfirmPaymentReceivedScreen } from '../screens/debt/ConfirmPaymentReceivedScreen';
 import { GroupBalancesScreen } from '../screens/debt/GroupBalancesScreen';
 import { PaymentHistoryScreen } from '../screens/debt/PaymentHistoryScreen';
@@ -112,7 +111,7 @@ export function RootNavigator() {
           <AppStack.Screen name="ExpenseDetails" component={ExpenseDetailsScreen} />
           <AppStack.Screen name="GroupBalances" component={GroupBalancesScreen} />
           <AppStack.Screen name="Payment" component={PaymentScreen} />
-          <AppStack.Screen name="BankTransferQr" component={BankTransferQrScreen} />
+          <AppStack.Screen name="BankTransferQr" component={PaymentScreen} />
           <AppStack.Screen name="WaitingConfirmation" component={WaitingConfirmationScreen} />
           <AppStack.Screen name="ConfirmPaymentReceived" component={ConfirmPaymentReceivedScreen} />
           <AppStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
@@ -140,7 +139,7 @@ export function RootNavigator() {
               <AppStack.Screen name="ExpenseDetails" component={ExpenseDetailsScreen} />
               <AppStack.Screen name="GroupBalances" component={GroupBalancesScreen} />
               <AppStack.Screen name="Payment" component={PaymentScreen} />
-              <AppStack.Screen name="BankTransferQr" component={BankTransferQrScreen} />
+              <AppStack.Screen name="BankTransferQr" component={PaymentScreen} />
               <AppStack.Screen name="WaitingConfirmation" component={WaitingConfirmationScreen} />
               <AppStack.Screen name="ConfirmPaymentReceived" component={ConfirmPaymentReceivedScreen} />
               <AppStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />

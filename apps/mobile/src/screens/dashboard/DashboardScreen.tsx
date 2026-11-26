@@ -630,7 +630,7 @@ export function DashboardScreen() {
                       Thêm tài khoản nhận VietQR
                     </Text>
                     <Text style={styles.bankSetupSub}>
-                      Bạn bè quét mã trả tiền gọn 1 chạm, khỏi gõ số tài khoản.
+                      Bạn bè có thể quét VietQR để điền sẵn thông tin chuyển khoản.
                     </Text>
                   </View>
                   <IconChevron width={16} height={16} />

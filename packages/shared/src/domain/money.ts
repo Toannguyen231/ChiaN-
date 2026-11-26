@@ -30,11 +30,13 @@ export function formatVnd(amountVnd: number, options: FormatVndOptions = {}): st
  * Parses a formatted Vietnamese currency input (e.g., "960.000 ₫") into a safe non-negative integer.
  */
 export function parseVndInput(raw: string): number {
-  const digits = raw.replace(/\D/g, '');
-  if (!digits) {
-    return 0;
-  }
-  const parsed = Number.parseInt(digits, 10);
+  const input = raw.trim();
+  if (!input) return 0;
+
+  const match = input.match(/^(\d+|\d{1,3}(?:\.\d{3})+|\d{1,3}(?: \d{3})+)\s*(k|₫|đ|vnd)?$/i);
+  if (!match?.[1]) throw new Error('Nhập số tiền như 120.000 hoặc 120k.');
+  const digits = match[1].replace(/[. ]/g, '');
+  const parsed = Number(digits) * (match[2]?.toLowerCase() === 'k' ? 1000 : 1);
   if (!Number.isSafeInteger(parsed)) {
     throw new Error('Số tiền vượt quá giới hạn hợp lệ');
   }

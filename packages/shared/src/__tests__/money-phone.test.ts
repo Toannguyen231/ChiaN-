@@ -24,6 +24,13 @@ describe('money & phone helpers', () => {
   it('parses VND input safely', () => {
     expect(parseVndInput('960.000 ₫')).toBe(960000);
     expect(parseVndInput('')).toBe(0);
+    expect(parseVndInput('120k')).toBe(120000);
+    expect(parseVndInput(' 120 K ')).toBe(120000);
+    expect(parseVndInput('1.200k')).toBe(1200000);
+    expect(() => parseVndInput('120kk')).toThrow();
+    expect(() => parseVndInput('1,5k')).toThrow();
+    expect(() => parseVndInput('1.5k')).toThrow();
+    expect(() => parseVndInput('9007199254741k')).toThrow();
   });
 
   it('normalizes valid Vietnamese mobile numbers to E.164', () => {
