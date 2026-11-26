@@ -1,5 +1,14 @@
 import 'dotenv/config';
+import { vnPhoneSchema } from '@chiane/shared';
 import { z } from 'zod';
+
+const optionalSetting = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(value => value === '' ? undefined : value, schema.optional());
+
+const storageUrl = z.string().url().refine(value => {
+  const url = new URL(value);
+  return url.protocol === 'https:' && !url.search && !url.hash && !url.username && !url.password;
+}, 'Storage URLs must be HTTPS without credentials, query or fragment');
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
@@ -17,6 +26,14 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true'),
+  REVIEWER_DEMO_PHONE: optionalSetting(vnPhoneSchema),
+  REVIEWER_DEMO_OTP: optionalSetting(z.string().regex(/^\d{6}$/)),
+  S3_ENDPOINT: optionalSetting(storageUrl),
+  S3_BUCKET: optionalSetting(z.string().regex(/^[a-z0-9][a-z0-9.-]+[a-z0-9]$/)),
+  S3_ACCESS_KEY_ID: optionalSetting(z.string().trim().min(1)),
+  S3_SECRET_ACCESS_KEY: optionalSetting(z.string().min(1)),
+  S3_PUBLIC_BASE_URL: optionalSetting(storageUrl),
+  S3_REGION: optionalSetting(z.string().regex(/^[a-z0-9-]+$/)),
   GEMINI_API_KEY: z.string().optional(),
   ESMS_API_KEY: z.string().optional(),
   ESMS_SECRET_KEY: z.string().optional(),

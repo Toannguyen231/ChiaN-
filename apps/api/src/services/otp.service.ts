@@ -182,7 +182,16 @@ export class OtpService {
       data: { consumedAt: now },
     });
 
-    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const demoCode = this.config.REVIEWER_DEMO_PHONE && this.config.REVIEWER_DEMO_OTP;
+    const isReviewer = Boolean(demoCode && phone === this.config.REVIEWER_DEMO_PHONE);
+    let code: string;
+    if (isReviewer && demoCode) {
+      code = demoCode;
+    } else {
+      do {
+        code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+      } while (code === demoCode);
+    }
     const salt = crypto.randomBytes(16).toString('hex');
     const codeHash = hashOtpCode(code, salt);
     const expiresAt = new Date(now.getTime() + this.config.OTP_TTL_SECONDS * 1000);
@@ -197,7 +206,9 @@ export class OtpService {
       },
     });
 
-    await this.provider.sendOtp(phone, code, this.config.OTP_TTL_SECONDS);
+    if (!isReviewer) {
+      await this.provider.sendOtp(phone, code, this.config.OTP_TTL_SECONDS);
+    }
 
     return {
       phone,

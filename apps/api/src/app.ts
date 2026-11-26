@@ -141,7 +141,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     prisma,
     requireAuthOrGuest,
   });
-  registerReceiptUploads(app, requireAuthOrGuest);
+  registerReceiptUploads(app, requireAuthOrGuest, config);
   await registerOcrRoutes(app, {
     requireAuthOrGuest,
     geminiApiKey: config.GEMINI_API_KEY,

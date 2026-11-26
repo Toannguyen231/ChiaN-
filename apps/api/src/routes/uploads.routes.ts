@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+import type { AppConfig } from '../config/env';
+import { createReceiptStorage } from '../services/receipt-storage.service';
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../utils/errors';
@@ -13,8 +13,6 @@ const schema = z.object({
 });
 const mimeTypes = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' } as const;
 
-export const RECEIPT_UPLOAD_DIR = path.resolve(__dirname, '../../uploads/receipts');
-
 function extension(bytes: Buffer) {
   if (bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return 'jpg';
   if (bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) return 'png';
@@ -22,7 +20,8 @@ function extension(bytes: Buffer) {
   return null;
 }
 
-export function registerReceiptUploads(app: FastifyInstance, auth: preHandlerHookHandler) {
+export function registerReceiptUploads(app: FastifyInstance, auth: preHandlerHookHandler, config: AppConfig) {
+  const storage = createReceiptStorage(config);
   app.post('/api/v1/uploads/receipt', { preHandler: auth }, async (request, reply) => {
     const { imageBase64, mimeType } = schema.parse(request.body);
     const cleanBase64 = imageBase64
@@ -50,9 +49,8 @@ export function registerReceiptUploads(app: FastifyInstance, auth: preHandlerHoo
       throw new AppError(400, 'INVALID_RECEIPT_IMAGE', 'Chọn ảnh JPEG, PNG hoặc WebP tối đa 5 MB nhé.');
     }
     const filename = `${randomUUID()}.${ext}`;
-    await mkdir(RECEIPT_UPLOAD_DIR, { recursive: true });
-    await writeFile(path.join(RECEIPT_UPLOAD_DIR, filename), bytes, { flag: 'wx' });
-    return reply.status(201).send({ receiptImageUrl: `/api/v1/uploads/receipts/${filename}` });
+    const receiptImageUrl = await storage.put(filename, bytes, normalizedMime);
+    return reply.status(201).send({ receiptImageUrl });
   });
   app.get('/api/v1/uploads/receipts/:filename', async (request, reply) => {
     const { filename } = request.params as { filename: string };
@@ -60,13 +58,8 @@ export function registerReceiptUploads(app: FastifyInstance, auth: preHandlerHoo
       throw new AppError(404, 'RECEIPT_NOT_FOUND', 'Không tìm thấy ảnh hóa đơn.');
     }
     const ext = filename.split('.').pop() as keyof typeof mimeTypes;
-    try {
-      const image = await readFile(path.join(RECEIPT_UPLOAD_DIR, filename));
-      return reply.type(mimeTypes[ext]).header('Cache-Control', 'private, max-age=31536000, immutable')
-        .header('Cross-Origin-Resource-Policy', 'cross-origin').send(image);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      throw new AppError(404, 'RECEIPT_NOT_FOUND', 'Không tìm thấy ảnh hóa đơn.');
-    }
+    const image = await storage.get(filename);
+    return reply.type(mimeTypes[ext]).header('Cache-Control', 'private, max-age=31536000, immutable')
+      .header('Cross-Origin-Resource-Policy', 'cross-origin').send(image);
   });
 }

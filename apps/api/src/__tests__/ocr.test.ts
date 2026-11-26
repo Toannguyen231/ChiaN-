@@ -1,6 +1,6 @@
 import { unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { RECEIPT_UPLOAD_DIR } from '../routes/uploads.routes';
+import { createReceiptStorage, RECEIPT_UPLOAD_DIR } from '../services/receipt-storage.service';
 import { scanReceiptWithGemini } from '../services/ocr.service';
 import { PrismaClient } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
@@ -114,6 +114,41 @@ describe('ChiaNè AI OCR Receipt Scanning API', () => {
         .rejects.toMatchObject({ statusCode: 503, code: 'OCR_UNAVAILABLE' });
     } finally {
       fetch.mockRestore();
+    }
+  });
+
+  it('signs cloud PUT and GET and returns public or proxied URLs', async () => {
+    const config = { ...testDb.config, S3_ENDPOINT: 'https://unit.example', S3_BUCKET: 'bills',
+      S3_ACCESS_KEY_ID: 'fixture', S3_SECRET_ACCESS_KEY: 'fixture-secret', S3_REGION: 'auto' };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-02T03:04:05Z'));
+    const mock = vi.spyOn(globalThis, 'fetch');
+    const bytes = Buffer.from('fixture');
+    const filename = 'sample.png';
+    try {
+      mock.mockResolvedValueOnce(new Response(null));
+      const store = createReceiptStorage(config);
+      expect(await store.put(filename, bytes, 'image/png')).toBe('/api/v1/uploads/receipts/sample.png');
+      const [url, put] = mock.mock.calls[0]!;
+      expect(String(url)).toBe('https://unit.example/bills/receipts/sample.png');
+      expect(put?.method).toBe('PUT');
+      expect(put?.body).toEqual(new Uint8Array(bytes));
+      expect(new Headers(put?.headers).get('authorization')).toBe(
+        'AWS4-HMAC-SHA256 Credential=fixture/20260102/auto/s3/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=dc2b21d0de63d30e7ce3556372109c7a8f0fd61564cd5e7b9208745879fa4039');
+      mock.mockResolvedValueOnce(new Response('fixture'));
+      const body = await store.get(filename);
+      const chunks = [];
+      for await (const chunk of body) chunks.push(chunk);
+      expect(Buffer.concat(chunks)).toEqual(bytes);
+      expect(new Headers(mock.mock.calls[1]?.[1]?.headers).get('authorization')).toContain('Signature=247250208e1baa255d89ec70e0b972eed56428a8163f4b7bb2af50fa6cb1abba');
+      mock.mockResolvedValueOnce(new Response(null));
+      const publicStore = createReceiptStorage({ ...config, S3_PUBLIC_BASE_URL: 'https://cdn.example/base/' });
+      expect(await publicStore.put(filename, bytes, 'image/png')).toBe('https://cdn.example/base/receipts/sample.png');
+      mock.mockResolvedValueOnce(new Response(null, { status: 403 }));
+      await expect(store.put(filename, bytes, 'image/png')).rejects.toMatchObject({ code: 'RECEIPT_STORAGE_ERROR' });
+    } finally {
+      mock.mockRestore();
+      vi.useRealTimers();
     }
   });
 

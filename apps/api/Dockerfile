@@ -1,4 +1,4 @@
-FROM node:22-slim AS builder
+FROM node:22.22.2-bookworm-slim AS builder
 
 RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
@@ -14,11 +14,12 @@ RUN npm ci --ignore-scripts
 COPY packages/shared packages/shared
 COPY apps/api apps/api
 
-RUN npm run build:shared \
+RUN npm run check:prisma-sync --workspace=@chiane/api \
+  && npm run build:shared \
   && npx prisma generate --schema=apps/api/prisma/schema.postgres.prisma \
   && npm run build --workspace=@chiane/api
 
-FROM node:22-slim AS runner
+FROM node:22.22.2-bookworm-slim AS runner
 
 RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 

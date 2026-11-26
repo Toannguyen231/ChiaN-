@@ -1,3 +1,4 @@
+import { loadConfig } from '../config/env';
 import { PrismaClient } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -38,6 +39,42 @@ describe('ChiaNè Auth & Foundation API (Module 01)', () => {
     }
     await testDb.cleanupDb(prisma);
   });
+
+  it('uses a hashed, single-use challenge only for the configured production reviewer', async () => {
+    const config = loadConfig({
+      NODE_ENV: 'production', DATABASE_URL: baseConfig.DATABASE_URL, JWT_ACCESS_SECRET: baseConfig.JWT_ACCESS_SECRET,
+      OTP_DEV_ECHO: 'false', REVIEWER_DEMO_PHONE: '0912 345 678', REVIEWER_DEMO_OTP: '012345',
+    });
+    await app.close();
+    app = await buildApp({ config, prisma, otpProvider });
+    const request = (phone: string) => app.inject({ method: 'POST', url: '/api/v1/auth/otp/request', payload: { phone } });
+    const verify = (phone: string, code: string) => app.inject({ method: 'POST', url: '/api/v1/auth/otp/verify', payload: { phone, code } });
+    const reviewer = '+84912345678';
+    const ordinary = '0987654321';
+    const issued = await request(reviewer);
+    expect(issued.statusCode).toBe(200);
+    expect(issued.json()).not.toHaveProperty('devOtp');
+    expect(otpProvider.lastSent).toBeNull();
+    const challenge = await prisma.otpChallenge.findFirstOrThrow({ where: { phone: reviewer } });
+    expect(challenge.codeHash).toMatch(/^[a-f0-9]{64}$/);
+    expect((await verify(reviewer, '000000')).json().error.code).toBe('OTP_INVALID');
+    expect((await verify(reviewer, '012345')).json().accessToken).toBeTruthy();
+    expect((await verify(reviewer, '012345')).statusCode).toBe(401);
+    expect((await request(ordinary)).statusCode).toBe(200);
+    expect(otpProvider.lastSent?.phone).toBe('+84987654321');
+    expect((await verify(ordinary, '012345')).json().error.code).toBe('OTP_INVALID');
+    expect((await verify(ordinary, otpProvider.lastSent!.code)).statusCode).toBe(200);
+  });
+
+  it.each([{ REVIEWER_DEMO_PHONE: '+84912345678' }, { REVIEWER_DEMO_OTP: '012345' }])(
+    'delivers ordinary OTPs with incomplete review configuration %o', async partial => {
+      await app.close();
+      app = await buildApp({ config: { ...baseConfig, ...partial }, prisma, otpProvider });
+      const res = await app.inject({ method: 'POST', url: '/api/v1/auth/otp/request', payload: { phone: '0912345678' } });
+      expect(res.statusCode).toBe(200);
+      expect(otpProvider.lastSent?.code).toBe(res.json().devOtp);
+    }
+  );
 
   it('responds ok on GET /health', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' });

@@ -1,4 +1,3 @@
-// Auto-mirrored PostgreSQL schema for cloud production (Render / Supabase / Neon / Railway)
 // For production PostgreSQL deployment, switch provider to "postgresql" and supply a Postgres DATABASE_URL.
 datasource db {
   provider = "postgresql"

@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.expo*
+**/.env
+**/.env.*
+**/uploads
+**/*.db*
+**/*.sqlite*
+**/*.jks
+**/*.keystore
+.git
