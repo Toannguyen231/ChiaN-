@@ -1,3 +1,4 @@
+import { registerAndroidLinks } from './routes/android-links.routes';
 import { registerReceiptUploads } from './routes/uploads.routes';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -104,6 +105,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const requireAuthOrGuest = createRequireAuthOrGuest(prisma, tokenService);
 
   await registerHealthRoutes(app);
+  registerAndroidLinks(app, config.ANDROID_APP_SHA256);
   await registerLegalRoutes(app);
   await registerAuthRoutes(app, {
     prisma,

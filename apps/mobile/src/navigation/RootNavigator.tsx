@@ -37,7 +37,7 @@ import type { AppStackParamList } from './types';
 const AppStack = createNativeStackNavigator<AppStackParamList>();
 
 const linking: LinkingOptions<AppStackParamList> = {
-  prefixes: ['chiane://', 'https://chiane.app'],
+  prefixes: ['chiane://', 'https://chiane.app', ...(process.env.EXPO_PUBLIC_API_URL ? [process.env.EXPO_PUBLIC_API_URL.trim().replace(/\/+$/, '')] : [])],
   config: {
     screens: {
       MainTabs: {
@@ -118,10 +118,10 @@ export function RootNavigator() {
           <AppStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
           <AppStack.Screen name="PaymentCompleted" component={PaymentCompletedScreen} />
           <AppStack.Screen name="OfflineSaved" component={OfflineSavedScreen} />
-          <AppStack.Screen name="GuestJoin" component={GuestJoinScreen} />
+          <AppStack.Screen name="GuestJoin" getId={({ params }) => params.inviteCode} component={GuestJoinScreen} />
         </AppStack.Navigator>
       ) : (
-        <AppStack.Navigator screenOptions={{ headerShown: false }}>
+        <AppStack.Navigator UNSTABLE_routeNamesChangeBehavior="lastUnhandled" screenOptions={{ headerShown: false }}>
           {status === 'needs_profile' ? (
             <AppStack.Screen
               name="DisplayNameSetup"
@@ -149,7 +149,7 @@ export function RootNavigator() {
               <AppStack.Screen name="BankAccount" component={BankAccountScreen} />
               <AppStack.Screen name="NotificationPreferences" component={NotificationPreferencesScreen} />
               <AppStack.Screen name="PhoneChange" component={PhoneChangeScreen} />
-              <AppStack.Screen name="GuestJoin" component={GuestJoinScreen} />
+              <AppStack.Screen name="GuestJoin" getId={({ params }) => params.inviteCode} component={GuestJoinScreen} />
               <AppStack.Screen name="OfflineSaved" component={OfflineSavedScreen} />
             </>
           )}

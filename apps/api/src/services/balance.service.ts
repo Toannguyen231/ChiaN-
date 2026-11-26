@@ -40,7 +40,11 @@ export function buildBankPreview(
 }
 
 export function formatInviteLink(inviteCode: string): string {
-  return `https://chiane.app/moi/${inviteCode}`;
+  const origin = new URL(process.env.PUBLIC_APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || 'https://chiane.app');
+  if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) {
+    throw new Error('PUBLIC_APP_ORIGIN must be an HTTPS origin');
+  }
+  return new URL('/moi/' + encodeURIComponent(inviteCode), origin).href;
 }
 
 export interface ComputedGroupFinancials {

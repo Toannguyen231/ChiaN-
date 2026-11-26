@@ -34,6 +34,8 @@ export function GuestJoinScreen({ navigation, route }: Props) {
 
   const [claimMemberId, setClaimMemberId] = useState<string>();
   const [preview, setPreview] = useState<InvitePreviewDto | null>(null);
+  const guestGroupId = useAuthStore(s => s.guestSession?.groupId);
+  const alreadyGuest = authStatus === 'guest' && !!preview && guestGroupId === preview.groupId;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
@@ -41,6 +43,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
   const [joining, setJoining] = useState(false);
 
   const loadPreview = useCallback(async () => {
+    setPreview(null);
     setLoading(true);
     setLoadError(null);
     try {
@@ -63,7 +66,11 @@ export function GuestJoinScreen({ navigation, route }: Props) {
   }, [loadPreview]);
 
   const handleJoin = async () => {
-    if (!preview) return;
+    if (!preview || preview.inviteCode !== inviteCode.trim().toLowerCase()) return;
+    if (alreadyGuest) {
+      (navigation as NativeStackScreenProps<AppStackParamList, 'GuestJoin'>['navigation']).replace('GroupDetails', { groupId: preview.groupId });
+      return;
+    }
     setSubmitError(null);
     setJoining(true);
     try {
@@ -110,12 +117,12 @@ export function GuestJoinScreen({ navigation, route }: Props) {
         />
       }
       footer={
-        preview && !preview.isArchived ? (
+        preview && !loading && !loadError && (!preview.isArchived || alreadyGuest) ? (
           <ChiaNeButton
-            label={isAuthenticatedUser ? 'Tham gia nhóm ngay' : 'Tham gia nhóm'}
+            label={alreadyGuest ? 'Mở nhóm' : isAuthenticatedUser ? 'Tham gia nhóm ngay' : 'Tham gia nhóm'}
             variant="primary"
             loading={joining}
-            disabled={!isAuthenticatedUser && !claimMemberId && !displayName.trim()}
+            disabled={!alreadyGuest && !isAuthenticatedUser && !claimMemberId && !displayName.trim()}
             onPress={() => void handleJoin()}
           />
         ) : undefined
@@ -141,7 +148,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
-          {!preview.isArchived && Boolean(preview.claimableMembers?.length) && (
+          {!alreadyGuest && !preview.isArchived && Boolean(preview.claimableMembers?.length) && (
             <View style={styles.accountConfirmCard}>
               <Text style={styles.accountConfirmTitle}>Bạn đã có tên trong nhóm này chưa?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -153,7 +160,7 @@ export function GuestJoinScreen({ navigation, route }: Props) {
               </View>
             </View>
           )}
-          {preview.isArchived ? (
+          {alreadyGuest ? <Text style={styles.question}>Bạn đã tham gia nhóm này.</Text> : preview.isArchived ? (
             <StateView
               kind="empty"
               title="Nhóm này đã lưu trữ"

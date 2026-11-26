@@ -26,6 +26,10 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true'),
+  ANDROID_APP_SHA256: optionalSetting(z.string().trim().regex(
+    /^(?:[\da-f]{2}:){31}[\da-f]{2}(?:\s*,\s*(?:[\da-f]{2}:){31}[\da-f]{2})*$/i,
+    'Expected comma-separated SHA-256 certificate fingerprints'
+  )),
   REVIEWER_DEMO_PHONE: optionalSetting(vnPhoneSchema),
   REVIEWER_DEMO_OTP: optionalSetting(z.string().regex(/^\d{6}$/)),
   S3_ENDPOINT: optionalSetting(storageUrl),

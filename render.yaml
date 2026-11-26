@@ -71,3 +71,5 @@ services:
         sync: false
       - key: S3_PUBLIC_BASE_URL
         sync: false
+      - key: ANDROID_APP_SHA256
+        sync: false

@@ -25,7 +25,7 @@ Thực hiện từ trên xuống. Thay `<api-domain>` bằng tên miền thật 
 
 ## 2. Tạo APK và AAB bằng EAS
 
-1. Trong `apps/mobile/eas.json`, thay **cả hai** URL kết thúc bằng `.example.invalid`. Profile `preview` trỏ đến API thử nghiệm, `production` trỏ đến API dùng cho Google Play. Dùng origin HTTPS, bỏ phần `/api/v1`. URL được nhúng lúc build. Khi đổi URL, build lại ứng dụng.
+1. Sau khi Render cấp URL thật, vào Expo Dashboard → project ChiaNè → Environment variables. Tạo biến Plain text `EXPO_PUBLIC_API_URL` trong **preview** (APK) và **production** (AAB), điền origin HTTPS thật cho mỗi môi trường. Ví dụ định dạng là `https://<tên-service>.onrender.com`; thay bằng địa chỉ của chính bạn. Bản build đọc biến từ EAS. Khi đổi domain phải build lại Android để cập nhật cả URL API lẫn App Links.
 2. Tại PowerShell chạy từng dòng sau. `eas init` liên kết hoặc tạo project Expo. Kiểm tra tài khoản sở hữu project và lưu thay đổi project ID vào repo.
 
 ```powershell
@@ -40,6 +40,14 @@ eas build --platform android --profile preview
 
 3. Tải APK từ link **Build details → Install**. Cài trên máy Android và thử bằng 4G với máy dev tắt. Kiểm tra OTP, chọn ảnh có sẵn, hủy bộ chọn rồi mở lại, quét OCR, lưu khoản chi, mở ảnh sau khi khởi động lại và xóa tài khoản thử. [Cài APK từ EAS](https://docs.expo.dev/build-reference/apk/)
 4. Chạy `eas build --platform android --profile production`. Với app mới có thể chọn để EAS tạo Android keystore. Với app đã phát hành, chọn đúng upload key đang đăng ký. Lưu bản sao upload key ở nơi bảo mật. Tải **.aab** từ trang build và ghi lại versionCode. Các lần cập nhật phải có versionCode lớn hơn bản đã tải lên Play.
+
+### Kiểm tra QR và ảnh trên Android
+
+- Trên Render, link mời mới mặc định dùng domain `RENDER_EXTERNAL_URL`. Nếu API chạy ở domain riêng, đặt `PUBLIC_APP_ORIGIN` trùng với `EXPO_PUBLIC_API_URL`, trỏ domain vào service này và kiểm tra HTTPS. Nếu vẫn phát link `chiane.app`, domain đó cũng cần phục vụ trang mời và file liên kết.
+- Với lần tải AAB đầu tiên, kích hoạt Play App Signing. Trong Play Console → App integrity → App signing, sao chép SHA-256 của **App signing key certificate** vào `ANDROID_APP_SHA256` trên Render rồi redeploy. APK cài trực tiếp dùng fingerprint của keystore ký APK; có thể thêm fingerprint đó, cách nhau bằng dấu phẩy. Không cần build lại nếu chỉ cập nhật fingerprint trên server.
+- Mở `https://<api-domain>/.well-known/assetlinks.json`. Phải nhận HTTP 200 với package `com.chiane.app` và đúng fingerprint. Danh sách rỗng nghĩa là máy chủ chưa được cấu hình. Mở URL QR bằng trình duyệt phải thấy nút mở app và mã nhóm để nhập lại sau khi cài.
+- Trên thiết bị đã cài từ Play, chạy `adb shell pm verify-app-links --re-verify com.chiane.app`, chờ Android xác minh rồi chạy `adb shell pm get-app-links com.chiane.app`. Domain API phải hiện `verified`. Quét hai lời mời khác nhau khi app tắt và khi đang mở; so tên nhóm trên màn hình trước khi tham gia.
+- Thử chọn một ảnh khi chưa cấp quyền đọc thư viện, hủy rồi chọn lại, chụp bằng camera, từ chối quyền camera và lưu khi OCR mất mạng. Kiểm tra lại ảnh trong chi tiết khoản chi sau khi mở lại app.
 
 ## 3. Điền Google Play Console
 

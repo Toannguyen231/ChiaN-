@@ -20,7 +20,7 @@ export function AuthNavigator() {
       <Stack.Screen name="Welcome" component={WelcomeScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="OtpVerify" component={OtpVerifyScreen} />
-      <Stack.Screen name="GuestJoin" component={GuestJoinScreen} />
+      <Stack.Screen name="GuestJoin" getId={({ params }) => params.inviteCode} component={GuestJoinScreen} />
     </Stack.Navigator>
   );
 }

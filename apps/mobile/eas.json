@@ -13,17 +13,19 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://replace-with-your-preview-api.example.invalid"
-      }
+        "CHIANE_RELEASE_BUILD": "1"
+      },
+      "environment": "preview"
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://replace-with-your-production-api.example.invalid"
+        "CHIANE_RELEASE_BUILD": "1"
       },
       "android": {
         "buildType": "app-bundle"
-      }
+      },
+      "environment": "production"
     }
   },
   "submit": {

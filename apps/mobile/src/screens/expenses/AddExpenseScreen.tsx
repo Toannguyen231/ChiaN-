@@ -193,49 +193,26 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     setOcrFailed(false);
 
     try {
-      if (Platform.OS !== 'web') {
-        if (fromCamera) {
-          let permission = await ImagePicker.getCameraPermissionsAsync();
-          if (!permission.granted) {
-            permission = await ImagePicker.requestCameraPermissionsAsync();
-          }
-          if (!permission.granted) {
-            setScanNotice(
-              'Chưa có quyền Máy ảnh. Hãy bật quyền trong Cài đặt hoặc chọn ảnh từ thư viện nhé.'
+      if (fromCamera && Platform.OS !== 'web') {
+        let permission = await ImagePicker.getCameraPermissionsAsync();
+        if (!permission.granted) {
+          permission = await ImagePicker.requestCameraPermissionsAsync();
+        }
+        if (!permission.granted) {
+          setScanNotice(
+            'Chưa có quyền Máy ảnh. Hãy bật quyền trong Cài đặt hoặc chọn ảnh từ thư viện nhé.'
+          );
+          if (permission.canAskAgain === false) {
+            Alert.alert(
+              'Cần quyền Máy ảnh',
+              'Bật quyền Máy ảnh trong Cài đặt thiết bị để chụp hóa đơn nhé.',
+              [
+                { text: 'Để sau', style: 'cancel' },
+                { text: 'Mở Cài đặt', onPress: () => void Linking.openSettings() },
+              ]
             );
-            if (permission.canAskAgain === false) {
-              Alert.alert(
-                'Cần quyền Máy ảnh',
-                'Bật quyền Máy ảnh trong Cài đặt thiết bị để chụp hóa đơn nhé.',
-                [
-                  { text: 'Để sau', style: 'cancel' },
-                  { text: 'Mở Cài đặt', onPress: () => void Linking.openSettings() },
-                ]
-              );
-            }
-            return;
           }
-        } else if (Platform.OS === 'android') {
-          let permission = await ImagePicker.getMediaLibraryPermissionsAsync();
-          if (!permission.granted) {
-            permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          }
-          if (!permission.granted) {
-            setScanNotice(
-              'Chưa có quyền Thư viện ảnh. Hãy bật quyền trong Cài đặt để chọn hóa đơn nhé.'
-            );
-            if (permission.canAskAgain === false) {
-              Alert.alert(
-                'Cần quyền Thư viện ảnh',
-                'Bật quyền truy cập Ảnh trong Cài đặt thiết bị để chọn hóa đơn nhé.',
-                [
-                  { text: 'Để sau', style: 'cancel' },
-                  { text: 'Mở Cài đặt', onPress: () => void Linking.openSettings() },
-                ]
-              );
-            }
-            return;
-          }
+          return;
         }
       }
 
@@ -270,6 +247,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
       if (!cleanBase64) {
         setScanNotice('Chưa đọc được dữ liệu ảnh. Bạn thử chọn lại ảnh khác nhé.');
+        return;
+      }
+      if (cleanBase64.length > 4 * Math.ceil(5 * 1024 * 1024 / 3)) {
+        setScanNotice('Ảnh hóa đơn lớn hơn 5 MB. Bạn chọn ảnh nhỏ hơn nhé.');
         return;
       }
       const mimeType = inferReceiptMimeType(cleanBase64, asset.mimeType);

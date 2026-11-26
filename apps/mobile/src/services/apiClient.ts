@@ -77,6 +77,7 @@ async function fetchFromApi(path: string, init: RequestInit): Promise<Response> 
       activeBaseUrl = baseUrl;
       return response;
     } catch (err) {
+      if (init.signal?.aborted) throw err;
       lastError = err;
       if (!hasMoreCandidates) {
         throw err;
@@ -158,6 +159,7 @@ export interface RequestOptions {
   body?: unknown;
   authenticated?: boolean;
   retryOnAuth?: boolean;
+  signal?: AbortSignal;
 }
 
 export async function apiRequest<T>(
@@ -196,6 +198,7 @@ export async function apiRequest<T>(
     response = await fetchFromApi(path, {
       method,
       headers,
+      signal: options.signal,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {

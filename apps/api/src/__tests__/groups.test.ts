@@ -37,6 +37,24 @@ describe('ChiaNè Dashboard & Group Management API (Module 02)', () => {
     await testDb.cleanupDb(prisma);
   });
 
+  it('publishes the Android association and preserves the exact invite on the fallback page', async () => {
+    const fingerprint = Array(32).fill('ab').join(':');
+    const empty = await app.inject({ method: 'GET', url: '/.well-known/assetlinks.json' });
+    expect(empty.json()).toEqual([]);
+    const signed = await buildApp({ config: { ...testDb.config, ANDROID_APP_SHA256: fingerprint }, prisma, otpProvider });
+    try {
+      const association = await signed.inject({ method: 'GET', url: '/.well-known/assetlinks.json' });
+      expect(association.json()[0].target).toEqual({ namespace: 'android_app', package_name: 'com.chiane.app',
+        sha256_cert_fingerprints: [fingerprint.toUpperCase()] });
+      const landing = await signed.inject({ method: 'GET', url: '/moi/da-lat-145abc' });
+      expect(landing.statusCode).toBe(200);
+      expect(landing.body).toContain('href="chiane://moi/da-lat-145abc"');
+      expect((await signed.inject({ method: 'GET', url: '/moi/%3Ctag%3E' })).statusCode).toBe(404);
+    } finally {
+      await signed.close();
+    }
+  });
+
   it('creates group as ADMIN, joins via invite code, regenerates link, and enforces RBAC', async () => {
     const an = await createAuthedUser(app, otpProvider, '0912345678', 'An');
     const linh = await createAuthedUser(app, otpProvider, '0987654321', 'Linh');
