@@ -59,6 +59,8 @@ services:
         sync: false
       - key: REVIEWER_DEMO_OTP
         sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
       - key: S3_ENDPOINT
         sync: false
       - key: S3_BUCKET

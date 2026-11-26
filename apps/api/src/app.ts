@@ -106,7 +106,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await registerHealthRoutes(app);
   registerAndroidLinks(app, config.ANDROID_APP_SHA256);
-  await registerLegalRoutes(app);
+  await registerLegalRoutes(app, config.SUPPORT_EMAIL);
   await registerAuthRoutes(app, {
     prisma,
     otpService,

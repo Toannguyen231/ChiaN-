@@ -32,6 +32,7 @@ const envSchema = z.object({
   )),
   REVIEWER_DEMO_PHONE: optionalSetting(vnPhoneSchema),
   REVIEWER_DEMO_OTP: optionalSetting(z.string().regex(/^\d{6}$/)),
+  SUPPORT_EMAIL: optionalSetting(z.string().trim().email()),
   S3_ENDPOINT: optionalSetting(storageUrl),
   S3_BUCKET: optionalSetting(z.string().regex(/^[a-z0-9][a-z0-9.-]+[a-z0-9]$/)),
   S3_ACCESS_KEY_ID: optionalSetting(z.string().trim().min(1)),

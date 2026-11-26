@@ -304,6 +304,25 @@ describe('ChiaNè Auth & Foundation API (Module 01)', () => {
       expect(res.headers['content-type']).toContain('text/html');
       expect(res.body).toContain(route.expectedText);
     }
+
+    const defaultDeleteRes = await app.inject({ method: 'GET', url: '/legal/delete-account' });
+    expect(defaultDeleteRes.body).toContain('mailto:support@chiane.app');
+
+    const customEmailApp = await buildApp({
+      config: { ...baseConfig, SUPPORT_EMAIL: 'hotro.chiane@gmail.com' },
+      prisma,
+      otpProvider,
+    });
+    try {
+      const privacyRes = await customEmailApp.inject({ method: 'GET', url: '/legal/privacy' });
+      const deleteRes = await customEmailApp.inject({ method: 'GET', url: '/legal/delete-account' });
+      expect(privacyRes.statusCode).toBe(200);
+      expect(privacyRes.body).toContain('mailto:hotro.chiane@gmail.com');
+      expect(deleteRes.statusCode).toBe(200);
+      expect(deleteRes.body).toContain('mailto:hotro.chiane@gmail.com');
+    } finally {
+      await customEmailApp.close();
+    }
   });
 
   it('blocks account deletion while active group balance is unsettled, then deletes account, promotes next admin, revokes tokens, and preserves group expense history once settled', async () => {

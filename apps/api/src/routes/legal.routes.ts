@@ -149,7 +149,21 @@ function renderLegalPage(options: {
 </html>`;
 }
 
-export async function registerLegalRoutes(app: FastifyInstance): Promise<void> {
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export async function registerLegalRoutes(
+  app: FastifyInstance,
+  supportEmail = 'support@chiane.app'
+): Promise<void> {
+  const safeEmail = escapeHtml(supportEmail.trim() || 'support@chiane.app');
+
   app.get('/legal/privacy', async (_request, reply) => {
     const html = renderLegalPage({
       title: 'Chính sách quyền riêng tư',
@@ -176,8 +190,18 @@ export async function registerLegalRoutes(app: FastifyInstance): Promise<void> {
           Cam kết minh bạch: ChiaNè KHÔNG bán dữ liệu người dùng, KHÔNG dùng số điện thoại cho quảng cáo và KHÔNG giữ tiền của người dùng.
         </div>
 
-        <h2>3. Quyền của bạn</h2>
-        <p>Bạn có toàn quyền chỉnh sửa tên hiển thị, xóa thông tin ngân hàng bất kỳ lúc nào trong tab <strong>Tài khoản</strong>, hoặc yêu cầu xóa vĩnh viễn tài khoản theo hướng dẫn tại trang <a href="/legal/delete-account">Xóa tài khoản</a>.</p>
+        <h2>3. Đối tác xử lý hạ tầng kỹ thuật</h2>
+        <p>Để vận hành các tính năng cốt lõi của ứng dụng, một phần dữ liệu cần thiết được xử lý qua các đối tác hạ tầng tuân thủ bảo mật:</p>
+        <ul>
+          <li><strong>Cổng nhắn tin OTP (eSMS / Zalo ZNS):</strong> Nhận số điện thoại và mã OTP để gửi tin nhắn xác thực đăng nhập.</li>
+          <li><strong>Google Gemini API:</strong> Chỉ xử lý ảnh hóa đơn khi bạn chủ động bấm quét hóa đơn AI để trích xuất gợi ý món và số tiền.</li>
+          <li><strong>Hạ tầng máy chủ, cơ sở dữ liệu và lưu trữ đối tượng (Render, PostgreSQL, Cloudflare R2):</strong> Lưu trữ an toàn dữ liệu nhóm, chi tiêu và ảnh hóa đơn đính kèm.</li>
+          <li><strong>Dịch vụ thông báo đẩy Expo Push:</strong> Gửi thông báo nhắc nhở hoặc cập nhật chi tiêu khi bạn bật thông báo trên thiết bị.</li>
+        </ul>
+        <p>Các đơn vị này chỉ xử lý dữ liệu để vận hành tính năng của ChiaNè, không được phép sử dụng cho quảng cáo bên thứ ba.</p>
+
+        <h2>4. Quyền của bạn & Liên hệ</h2>
+        <p>Bạn có toàn quyền chỉnh sửa tên hiển thị, xóa thông tin ngân hàng bất kỳ lúc nào trong tab <strong>Tài khoản</strong>, yêu cầu xóa vĩnh viễn tài khoản tại trang <a href="/legal/delete-account">Xóa tài khoản</a>, hoặc liên hệ hỗ trợ qua <a href="mailto:${safeEmail}"><strong>${safeEmail}</strong></a>.</p>
       `,
     });
 
@@ -233,10 +257,11 @@ export async function registerLegalRoutes(app: FastifyInstance): Promise<void> {
         <ul>
           <li><strong>Xóa vĩnh viễn ngay lập tức:</strong> Hồ sơ tài khoản, số điện thoại, tên hiển thị, thông tin ngân hàng nhận VietQR, mã OTP, push token và toàn bộ phiên đăng nhập.</li>
           <li><strong>Ẩn danh hóa trong sổ chung:</strong> Các khoản chi tiêu cũ trong nhóm vẫn được giữ nguyên số tiền để sổ của các thành viên còn lại không bị lệch, nhưng tên thành viên của bạn sẽ được đổi thành <em>"Tài khoản đã xóa"</em> và gỡ hoàn toàn liên kết với tài khoản cá nhân.</li>
+          <li><strong>Nhật ký kỹ thuật & bản sao lưu:</strong> Ảnh hóa đơn cá nhân không thuộc khoản chi chung và nhật ký kỹ thuật/bản sao lưu hệ thống sẽ tự động xoay vòng, xóa hết hạn theo chu kỳ lưu trữ của hạ tầng đám mây (tối đa 30 ngày).</li>
         </ul>
 
         <h2>3. Nếu bạn đã gỡ ứng dụng</h2>
-        <p>Bạn có thể cài lại ChiaNè, đăng nhập bằng số điện thoại cũ để thực hiện thao tác xóa ngay lập tức, hoặc gửi email yêu cầu hỗ trợ xóa thủ công kèm số điện thoại đăng ký về địa chỉ: <strong>support@chiane.app</strong> (xử lý trong vòng 7 ngày làm việc).</p>
+        <p>Bạn có thể cài lại ChiaNè, đăng nhập bằng số điện thoại cũ để thực hiện thao tác xóa ngay lập tức, hoặc gửi email yêu cầu hỗ trợ xóa thủ công kèm số điện thoại đăng ký về địa chỉ: <a href="mailto:${safeEmail}"><strong>${safeEmail}</strong></a> (xử lý trong vòng 7 ngày làm việc).</p>
       `,
     });
 
